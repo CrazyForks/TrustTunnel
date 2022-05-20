@@ -114,7 +114,7 @@ impl Authenticator for RadiusAuthenticator {
                             };
                         let password = todo!();
 
-                        let status = Session::authenticate(
+                        let authenticate = Session::authenticate(
                             &settings,
                             user_name.as_ref(),
                             password,
@@ -125,7 +125,13 @@ impl Authenticator for RadiusAuthenticator {
                                 x
                             },
                             &log_id,
-                        ).await;
+                        );
+
+                        let status = match tokio::time::timeout(settings.timeout, authenticate).await {
+                            Ok(x) => x,
+                            Err(e) => Err(AuthenticationError::Other(e.to_string())),
+                        };
+
                         state.lock().unwrap().sessions
                             .get(&SessionKey(source))
                             .map(|s| s.waiters_tx.send(status));
@@ -136,12 +142,9 @@ impl Authenticator for RadiusAuthenticator {
             }
         };
 
-        let status = match tokio::time::timeout(self.settings.timeout, wait.changed()).await
+        let status = match wait.changed().await
             .map_err(|e| AuthenticationError::Other(e.to_string()))
-            .and_then(|x| x
-                .map(|_| wait.borrow().clone())
-                .map_err(|e| AuthenticationError::Other(e.to_string()))?
-            )
+            .and_then(|_| wait.borrow().clone())
         {
             Ok(x) => x,
             Err(e) => {
