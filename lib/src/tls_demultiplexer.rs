@@ -60,6 +60,13 @@ pub(crate) struct ConnectionMeta {
 
 impl Debug for ConnectionMeta {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let sni_temp: String;
+        let sni_ref = if self.sni_auth_creds.is_some() {
+            sni_temp = net_utils::scrub_sni(self.sni.clone());
+            &sni_temp
+        } else {
+            &self.sni
+        };
         write!(f,
                "ConnectionMeta {{ \
                    sni: \"{}\", \
@@ -67,7 +74,7 @@ impl Debug for ConnectionMeta {
                    channel: {:?}, \
                    sni_auth_creds: {:?} \
                }}",
-               self.sni,
+               sni_ref,
                self.protocol,
                self.channel,
                self.sni_auth_creds,

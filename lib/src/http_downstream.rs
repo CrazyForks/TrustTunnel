@@ -81,7 +81,7 @@ impl Downstream for HttpDownstream {
         };
         let request = stream.request().request();
         let stream_id = stream.id();
-        log_id!(trace, stream_id, "Received request: {:?}", request);
+        log_id!(debug, stream_id, "Received request: {:?}", net_utils::scrub_request(&request));
 
         Ok(Some(Box::new(PendingRequest { stream, id: stream_id })))
     }

@@ -33,6 +33,8 @@ pub(crate) const HTTP3_DATA_FRAME_TYPE_WIRE_LENGTH: usize = varint_len(0);
 /// 1 byte for the chunk itself.
 pub(crate) const MIN_USABLE_QUIC_STREAM_CAPACITY: usize = http3_data_frame_overhead(1) + 1;
 
+const SCRUBBED_PLACEHOLDER: &str = "scrubbed";
+
 
 pub(crate) type HostnamePort = (String, u16);
 
@@ -422,7 +424,7 @@ pub(crate) const fn is_global_ipv6(ip: &Ipv6Addr) -> bool {
     }
 }
 
-/// Returns [`true`] if the address appears to be globally routable
+/// Returns [`true`] if the address appears to be globally routable.
 #[must_use]
 #[inline]
 pub(crate) const fn is_global_ip(ip: &IpAddr) -> bool {
@@ -432,10 +434,36 @@ pub(crate) const fn is_global_ip(ip: &IpAddr) -> bool {
     }
 }
 
+/// Returns HTTP request with sensitive fields removed.
+#[inline]
+pub(crate) fn scrub_request(request: &http::request::Parts) -> http::request::Parts {
+    let mut r = http::request::Request::new(()).into_parts().0;
+    r.method.clone_from(&request.method);
+    r.uri.clone_from(&request.uri);
+    r.version.clone_from(&request.version);
+    r.headers.clone_from(&request.headers);
+    for header in &[http::header::AUTHORIZATION, http::header::PROXY_AUTHORIZATION, http::header::COOKIE] {
+        if r.headers.contains_key(header) {
+            r.headers.insert(header, http::HeaderValue::from_static(SCRUBBED_PLACEHOLDER));
+        }
+    }
+    r
+}
+
+/// Returns SNI with sensitive data removed.
+#[inline]
+pub(crate) fn scrub_sni(mut sni: String) -> String {
+    if let Some(to) = sni.find('.') {
+        sni.replace_range(..to, SCRUBBED_PLACEHOLDER)
+    }
+    sni
+}
+
 #[cfg(test)]
 mod tests {
     use std::net::{Ipv4Addr, Ipv6Addr};
-    use crate::net_utils::{libc_to_socket_addr, socket_addr_to_libc};
+    use http::uri;
+    use crate::net_utils::{libc_to_socket_addr, socket_addr_to_libc, scrub_sni, scrub_request, SCRUBBED_PLACEHOLDER};
 
     #[test]
     fn sockaddr_conversion_v4() {
@@ -465,5 +493,53 @@ mod tests {
         let sa = libc_to_socket_addr(&sa);
         assert_eq!(sa.ip(), ip);
         assert_eq!(sa.port(), port);
+    }
+
+    #[test]
+    fn scrubbing_of_sni() {
+        assert_eq!("one", scrub_sni("one".to_string()));
+        assert_eq!(format!("{}.", SCRUBBED_PLACEHOLDER), crate::net_utils::scrub_sni("one.".to_string()));
+        assert_eq!(format!("{}.one", SCRUBBED_PLACEHOLDER), crate::net_utils::scrub_sni(".one".to_string()));
+        assert_eq!(format!("{}.two", SCRUBBED_PLACEHOLDER), crate::net_utils::scrub_sni("one.two".to_string()));
+        assert_eq!(format!("{}.two.three", SCRUBBED_PLACEHOLDER), crate::net_utils::scrub_sni("one.two.three".to_string()));
+    }
+
+    #[test]
+    fn scrubbing_of_headers() {
+        let mut original = http::request::Request::new(()).into_parts().0;
+        original.method.clone_from(&http::Method::GET);
+        original.uri.clone_from(&uri::Uri::from_static("https://example.org/abcd"));
+        original.version.clone_from(&http::Version::HTTP_11);
+        original.headers.insert(http::header::AUTHORIZATION, http::HeaderValue::from_static("secret1"));
+        original.headers.insert(http::header::PROXY_AUTHORIZATION, http::HeaderValue::from_static("secret2"));
+        original.headers.insert(http::header::COOKIE, http::HeaderValue::from_static("cookie1"));
+        original.headers.append(http::header::COOKIE, http::HeaderValue::from_static("cookie2"));
+        original.headers.append(http::header::COOKIE, http::HeaderValue::from_static("cookie3"));
+        original.headers.insert(http::header::ACCEPT, http::HeaderValue::from_static("text/html"));
+        let mut scrubbed = scrub_request(&original);
+        assert_eq!(original.method, scrubbed.method);
+        assert_eq!(original.uri, scrubbed.uri);
+        assert_eq!(original.version, scrubbed.version);
+        assert_eq!(vec![SCRUBBED_PLACEHOLDER], scrubbed.headers.get_all(http::header::AUTHORIZATION).iter().map(|x| x.to_str().unwrap()).collect::<Vec<&str>>());
+        assert_eq!(vec![SCRUBBED_PLACEHOLDER], scrubbed.headers.get_all(http::header::PROXY_AUTHORIZATION).iter().map(|x| x.to_str().unwrap()).collect::<Vec<&str>>());
+        assert_eq!(vec![SCRUBBED_PLACEHOLDER], scrubbed.headers.get_all(http::header::COOKIE).iter().map(|x| x.to_str().unwrap()).collect::<Vec<&str>>());
+        original.headers.remove(http::header::AUTHORIZATION);
+        scrubbed.headers.remove(http::header::AUTHORIZATION);
+        original.headers.remove(http::header::PROXY_AUTHORIZATION);
+        scrubbed.headers.remove(http::header::PROXY_AUTHORIZATION);
+        original.headers.remove(http::header::COOKIE);
+        scrubbed.headers.remove(http::header::COOKIE);
+        assert_eq!(original.headers, scrubbed.headers);
+    }
+
+    #[test]
+    fn scrubbing_of_headers_do_not_add() {
+        let mut original = http::request::Request::new(()).into_parts().0;
+        original.headers.insert(http::header::AUTHORIZATION, http::HeaderValue::from_static("secret1"));
+        original.headers.insert(http::header::PROXY_AUTHORIZATION, http::HeaderValue::from_static("secret2"));
+        let scrubbed = scrub_request(&original);
+        assert_eq!(vec![SCRUBBED_PLACEHOLDER], scrubbed.headers.get_all(http::header::AUTHORIZATION).iter().map(|x| x.to_str().unwrap()).collect::<Vec<&str>>());
+        assert_eq!(vec![SCRUBBED_PLACEHOLDER], scrubbed.headers.get_all(http::header::PROXY_AUTHORIZATION).iter().map(|x| x.to_str().unwrap()).collect::<Vec<&str>>());
+        assert_eq!(0, scrubbed.headers.get_all(http::header::COOKIE).iter().count());
     }
 }
