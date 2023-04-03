@@ -1,11 +1,13 @@
 use std::io::ErrorKind;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
-
 use bytes::Bytes;
-
 use crate::{http_codec, log_id, log_utils, pipe};
 use crate::http_codec::HttpCodec;
+use crate::shutdown::Shutdown;
+
+pub(crate) const SKIPPABLE_PATH_SEGMENT: &str = "speed";
 
 const MAX_DOWNLOAD_MB: u32 = 100;
 const MAX_UPLOAD_MB: u32 = 120;
@@ -13,7 +15,7 @@ const CHUNK_SIZE: usize = 64 * 1024;
 
 #[derive(Default)]
 struct SpeedtestManager {
-    running_tests_num: usize,
+    running_tests_num: AtomicUsize,
 }
 
 enum Speedtest {
@@ -21,8 +23,38 @@ enum Speedtest {
     Upload(u32),
 }
 
-pub(crate) async fn listen(mut codec: Box<dyn HttpCodec>, timeout: Duration, log_id: log_utils::IdChain<u64>) {
-    let manager = Arc::new(Mutex::new(SpeedtestManager::default()));
+pub(crate) async fn listen(
+    shutdown: Arc<Mutex<Shutdown>>,
+    mut codec: Box<dyn HttpCodec>,
+    timeout: Duration,
+    log_id: log_utils::IdChain<u64>,
+) {
+    let (mut shutdown_notification, _shutdown_completion) = {
+        let shutdown = shutdown.lock().unwrap();
+        (shutdown.notification_handler(), shutdown.completion_guard())
+    };
+
+    tokio::select! {
+        x = shutdown_notification.wait() => {
+            match x {
+                Ok(_) => (),
+                Err(e) => log_id!(debug, log_id, "Shutdown notification failure: {}", e),
+            }
+        },
+        _ = listen_inner(codec.as_mut(), timeout, &log_id) => (),
+    }
+
+    if let Err(e) = codec.graceful_shutdown().await {
+        log_id!(debug, log_id, "Failed to shutdown HTTP session: {}", e);
+    }
+}
+
+async fn listen_inner(
+    codec: &mut dyn HttpCodec,
+    timeout: Duration,
+    log_id: &log_utils::IdChain<u64>,
+) {
+    let manager = Arc::new(SpeedtestManager::default());
     loop {
         match tokio::time::timeout(timeout, codec.listen()).await {
             Ok(Ok(Some(x))) => {
@@ -30,22 +62,22 @@ pub(crate) async fn listen(mut codec: Box<dyn HttpCodec>, timeout: Duration, log
                 log_id!(trace, x.id(), "Received request: {:?}", request_headers);
                 match prepare_speedtest(request_headers) {
                     Ok(Speedtest::Download(n)) => {
-                        manager.lock().unwrap().running_tests_num += 1;
+                        manager.running_tests_num.fetch_add(1, Ordering::AcqRel);
                         tokio::spawn({
                             let manager = manager.clone();
                             async move {
                                 run_download_test(x, n).await;
-                                manager.lock().unwrap().running_tests_num -= 1;
+                                manager.running_tests_num.fetch_sub(1, Ordering::AcqRel);
                             }
                         });
                     }
                     Ok(Speedtest::Upload(n)) => {
                         tokio::spawn({
-                            manager.lock().unwrap().running_tests_num += 1;
+                            manager.running_tests_num.fetch_add(1, Ordering::AcqRel);
                             let manager = manager.clone();
                             async move {
                                 run_upload_test(x, n).await;
-                                manager.lock().unwrap().running_tests_num -= 1;
+                                manager.running_tests_num.fetch_sub(1, Ordering::AcqRel);
                             }
                         });
                     }
@@ -72,7 +104,7 @@ pub(crate) async fn listen(mut codec: Box<dyn HttpCodec>, timeout: Duration, log
                 log_id!(debug, log_id, "Session error: {}", e);
                 break;
             }
-            Err(_elapsed) if manager.lock().unwrap().running_tests_num > 0 =>
+            Err(_elapsed) if manager.running_tests_num.load(Ordering::Acquire) > 0 =>
                 log_id!(trace, log_id, "Ignoring timeout due to there are some uncompleted tests"),
             Err(_elapsed) => {
                 log_id!(debug, log_id, "Closing due to timeout");
@@ -86,15 +118,25 @@ pub(crate) async fn listen(mut codec: Box<dyn HttpCodec>, timeout: Duration, log
 }
 
 fn prepare_speedtest(request: &http_codec::RequestHeaders) -> Result<Speedtest, String> {
+    let path =
+        if let Some(x) = request.uri.path()
+            .strip_prefix('/')
+            .and_then(|x| x.strip_prefix(SKIPPABLE_PATH_SEGMENT))
+        {
+            x
+        } else {
+            request.uri.path()
+        };
+
     match request.method {
-        http::Method::GET => request.uri.path().strip_prefix('/')
+        http::Method::GET => path.strip_prefix('/')
             .and_then(|x| x.strip_suffix("mb.bin"))
             .and_then(|x| x.parse::<u32>().ok())
             .and_then(|x| (0 < x && x <= MAX_DOWNLOAD_MB).then_some(x))
             .map(|x| Speedtest::Download(x * 1024 * 1024))
             .ok_or_else(|| "Unexpected path".to_string()),
         http::Method::POST => {
-            if request.uri.path() != "/upload.html" {
+            if path != "/upload.html" {
                 return Err("Unexpected path".to_string());
             }
 

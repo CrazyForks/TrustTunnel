@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpListener, UdpSocket};
 use crate::direct_forwarder::DirectForwarder;
-use crate::{authentication, http_ping_handler, http_speedtest_handler, log_id, log_utils, metrics, net_utils, tls_demultiplexer, reverse_proxy, settings, tunnel};
+use crate::{authentication, http_ping_handler, http_speedtest_handler, log_id, log_utils, metrics, net_utils, reverse_proxy, settings, tls_demultiplexer, tunnel};
 use crate::authentication::RedirectToForwarderAuthenticator;
 use crate::tls_demultiplexer::TlsDemux;
 use crate::forwarder::Forwarder;
@@ -141,7 +141,7 @@ impl Core {
         if !settings.is_built() {
             settings.validate()
                 .map_err(|e| io::Error::new(
-                    ErrorKind::Other, format!("Settings validation failure: {:?}", e)
+                    ErrorKind::Other, format!("Settings validation failure: {:?}", e),
                 ))?;
         }
 
@@ -285,7 +285,7 @@ impl Core {
         };
 
         match tls_connection_meta.channel {
-            tls_demultiplexer::Channel::Tunnel => {
+            net_utils::Channel::Tunnel => {
                 let tunnel_id = client_id.extended(log_utils::IdItem::new(
                     log_utils::TUNNEL_ID_FMT, context.next_tunnel_id.fetch_add(1, Ordering::Relaxed),
                 ));
@@ -304,27 +304,31 @@ impl Core {
                     tunnel_id,
                 ).await
             }
-            tls_demultiplexer::Channel::Ping => http_ping_handler::listen(
+            net_utils::Channel::Ping => http_ping_handler::listen(
+                context.shutdown.clone(),
                 match Self::make_tcp_http_codec(
                     tls_connection_meta.protocol, core_settings, stream, client_id.clone(),
                 ) {
                     Ok(x) => x,
                     Err(e) => return Err((client_id, format!("Failed to create HTTP codec: {}", e))),
                 },
+                context.settings.tls_handshake_timeout,
                 client_id,
             ).await,
-            tls_demultiplexer::Channel::Speed => http_speedtest_handler::listen(
+            net_utils::Channel::Speedtest => http_speedtest_handler::listen(
+                context.shutdown.clone(),
                 match Self::make_tcp_http_codec(
-                    tls_connection_meta.protocol, core_settings.clone(), stream, client_id.clone(),
+                    tls_connection_meta.protocol, core_settings, stream, client_id.clone(),
                 ) {
                     Ok(x) => x,
                     Err(e) => return Err((client_id, format!("Failed to create HTTP codec: {}", e))),
                 },
-                core_settings.client_listener_timeout,
+                context.settings.tls_handshake_timeout,
                 client_id,
             ).await,
-            tls_demultiplexer::Channel::ReverseProxy => reverse_proxy::listen(
-                context,
+            net_utils::Channel::ReverseProxy => reverse_proxy::listen(
+                core_settings.clone(),
+                context.shutdown.clone(),
                 match Self::make_tcp_http_codec(
                     tls_connection_meta.protocol, core_settings, stream, client_id.clone(),
                 ) {
@@ -348,7 +352,7 @@ impl Core {
         log_id!(debug, client_id, "Connection meta: {:?}", tls_connection_meta);
 
         match tls_connection_meta.channel {
-            tls_demultiplexer::Channel::Tunnel => {
+            net_utils::Channel::Tunnel => {
                 let tunnel_id = client_id.extended(log_utils::IdItem::new(
                     log_utils::TUNNEL_ID_FMT, context.next_tunnel_id.fetch_add(1, Ordering::Relaxed),
                 ));
@@ -365,20 +369,24 @@ impl Core {
                     tunnel_id,
                 ).await
             }
-            tls_demultiplexer::Channel::Ping => http_ping_handler::listen(
+            net_utils::Channel::Ping => http_ping_handler::listen(
+                context.shutdown.clone(),
                 Box::new(Http3Codec::new(socket, client_id.clone())),
+                context.settings.tls_handshake_timeout,
                 client_id,
             ).await,
-            tls_demultiplexer::Channel::Speed => http_speedtest_handler::listen(
+            net_utils::Channel::Speedtest => http_speedtest_handler::listen(
+                context.shutdown.clone(),
                 Box::new(Http3Codec::new(socket, client_id.clone())),
-                context.settings.client_listener_timeout,
+                context.settings.tls_handshake_timeout,
                 client_id,
             ).await,
-            tls_demultiplexer::Channel::ReverseProxy => {
+            net_utils::Channel::ReverseProxy => {
                 let sni = tls_connection_meta.sni.clone();
 
                 reverse_proxy::listen(
-                    context,
+                    context.settings.clone(),
+                    context.shutdown.clone(),
                     Box::new(Http3Codec::new(socket, client_id.clone())),
                     sni,
                     client_id,
@@ -416,7 +424,12 @@ impl Core {
         log_id!(debug, tunnel_id, "New tunnel for client");
         let mut tunnel = Tunnel::new(
             context.clone(),
-            Box::new(HttpDownstream::new(context.settings.clone(), codec, server_name)),
+            Box::new(HttpDownstream::new(
+                context.settings.clone(),
+                context.shutdown.clone(),
+                codec,
+                server_name,
+            )),
             Self::make_forwarder(context),
             authentication_policy,
             tunnel_id.clone(),

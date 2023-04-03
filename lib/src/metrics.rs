@@ -17,6 +17,7 @@ const METRICS_PATH: &str = "/metrics";
 
 
 pub(crate) struct Metrics {
+    _registry: prometheus::Registry,
     client_sessions: prometheus::IntGaugeVec,
     inbound_traffic: prometheus::IntCounterVec,
     outbound_traffic: prometheus::IntCounterVec,
@@ -30,22 +31,27 @@ pub(crate) struct ClientSessionsCounter {
 
 impl Metrics {
     pub fn new() -> io::Result<Arc<Self>> {
+        let registry = prometheus::Registry::new();
         Ok(Arc::new(Self {
-            client_sessions: prometheus::register_int_gauge_vec!(
+            client_sessions: prometheus::register_int_gauge_vec_with_registry!(
                 "client_sessions",
                 "Number of active client sessions",
-                &["protocol_type"]
+                &["protocol_type"],
+                registry,
             ).map_err(prometheus_to_io_error)?,
-            inbound_traffic: prometheus::register_int_counter_vec!(
+            inbound_traffic: prometheus::register_int_counter_vec_with_registry!(
                 "inbound_traffic_bytes",
                 "Total number of bytes uploaded by clients",
-                &["protocol_type"]
+                &["protocol_type"],
+                registry,
             ).map_err(prometheus_to_io_error)?,
-            outbound_traffic: prometheus::register_int_counter_vec!(
+            outbound_traffic: prometheus::register_int_counter_vec_with_registry!(
                 "outbound_traffic_bytes",
                 "Total number of bytes downloaded by clients",
-                &["protocol_type"]
+                &["protocol_type"],
+                registry,
             ).map_err(prometheus_to_io_error)?,
+            _registry: registry,
         }))
     }
 

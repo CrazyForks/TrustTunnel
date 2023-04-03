@@ -8,7 +8,7 @@ use rustls_pemfile::{certs, pkcs8_private_keys};
 pub(crate) const SHA1_DIGEST_SIZE: usize = 20;
 
 
-pub(crate) fn hex_dump(buf: &[u8]) -> String {
+pub fn hex_dump(buf: &[u8]) -> String {
     buf.iter()
         .fold(
             String::with_capacity(2 * buf.len()),
@@ -16,7 +16,7 @@ pub(crate) fn hex_dump(buf: &[u8]) -> String {
         )
 }
 
-pub(crate) fn hex_dump_uppercase(buf: &[u8]) -> String {
+pub fn hex_dump_uppercase(buf: &[u8]) -> String {
     buf.iter()
         .fold(
             String::with_capacity(2 * buf.len()),

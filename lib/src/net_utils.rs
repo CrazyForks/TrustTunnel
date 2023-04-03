@@ -23,9 +23,9 @@ pub(crate) const IPV6_WIRE_LENGTH: usize = 16;
 const FIXED_LENGTH_IP_WIRE_LENGTH: usize = IPV6_WIRE_LENGTH;
 const IPV4_PADDING_WIRE_LENGTH: usize = FIXED_LENGTH_IP_WIRE_LENGTH - IPV4_WIRE_LENGTH;
 
-pub(crate) const HTTP1_ALPN: &str = "http/1.1";
-pub(crate) const HTTP2_ALPN: &str = "h2";
-pub(crate) const HTTP3_ALPN: &str = "h3";
+pub const HTTP1_ALPN: &str = "http/1.1";
+pub const HTTP2_ALPN: &str = "h2";
+pub const HTTP3_ALPN: &str = "h3";
 
 pub(crate) const HTTP3_DATA_FRAME_TYPE_WIRE_LENGTH: usize = varint_len(0);
 /// The minimum value of a stream capacity which allows to send a data chunk.
@@ -35,6 +35,18 @@ pub(crate) const MIN_USABLE_QUIC_STREAM_CAPACITY: usize = http3_data_frame_overh
 
 const SCRUBBED_PLACEHOLDER: &str = "scrubbed";
 
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub(crate) enum Channel {
+    /// The connection is used for tunneling client's connections (see [`crate::tunnel`])
+    Tunnel,
+    /// The connection is used just for measuring a ping
+    Ping,
+    /// The connection is used for a speedtest (see [`crate::http_speedtest_handler`])
+    Speedtest,
+    /// The connection is used for proxying requests further (see [`crate::reverse_proxy`])
+    ReverseProxy,
+}
 
 pub(crate) type HostnamePort = (String, u16);
 

@@ -1,5 +1,13 @@
 # CHANGELOG
 
+* The endpoint is now capable of handling service requests on the main tls domain.
+  API changes in the library:
+    * `tunnel_hosts` field of `settings::TlsHostsSettings` structure is renamed to `main_hosts`
+    * `path_mask` field added into `settings::ReverseProxySettings`
+
+  The executable related changes:
+    * the settings file is changed accordingly to the changes described above
+
 ## 0.9.30
 
 * Added support for dynamic reloading of TLS hosts settings.  

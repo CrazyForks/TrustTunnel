@@ -1,12 +1,10 @@
-mod logging;
-
 use std::fs::File;
 use std::io::BufReader;
 use std::sync::Arc;
 use log::{error, info, LevelFilter};
 use tokio::signal;
 use vpn_libs_endpoint::core::Core;
-use vpn_libs_endpoint::settings;
+use vpn_libs_endpoint::{log_utils, settings};
 use vpn_libs_endpoint::settings::Settings;
 use vpn_libs_endpoint::shutdown::Shutdown;
 
@@ -83,10 +81,10 @@ fn main() {
             }
         )));
 
-    let _guard = logging::LogFlushGuard;
+    let _guard = log_utils::LogFlushGuard;
     log::set_logger(match args.get_one::<String>(LOG_FILE_PARAM_NAME) {
-        None => logging::make_stdout_logger(),
-        Some(file) => logging::make_file_logger(file)
+        None => log_utils::make_stdout_logger(),
+        Some(file) => log_utils::make_file_logger(file)
             .expect("Couldn't open the logging file"),
     }).expect("Couldn't set logger");
 

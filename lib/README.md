@@ -37,8 +37,12 @@ the ICMP socket to, and MAY tweak some other settings, like the timeouts and mes
 
 ### Reverse proxy
 
-The traffic received via a TLS session or QUIC connection with the SNI set to the host name
-equal to a hostname from `TlsHostsSettings.reverse_proxy` is interpreted as a reverse proxy stream.
+Client's connection is treated as a reverse proxy stream in the following cases:
+1) A TLS session or QUIC connection has the SNI set to the host name equal to one
+   from `TlsHostsSettings.reverse_proxy`.
+2) An HTTP/1.1 request has `Upgrade` header and its path starts with `ReverseProxySettings.path_mask`.
+3) An HTTP/3 request has path starting with `ReverseProxySettings.path_mask`.
+
 The stream is used for mutual client and endpoint notifications and some control messages.
 The endpoint does TLS termination on such connections and translates HTTP/x traffic into
 HTTP/1.1 protocol towards the server and back into original HTTP/x towards the client.

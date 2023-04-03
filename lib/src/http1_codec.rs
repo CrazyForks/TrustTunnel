@@ -6,10 +6,11 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use bytes::{BufMut, Bytes, BytesMut};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Notify};
 use crate::{datagram_pipe, http_codec, log_id, log_utils, net_utils, pipe, settings, utils};
 use crate::tls_demultiplexer::Protocol;
 use crate::http_codec::{RequestHeaders, ResponseHeaders};
+use crate::pipe::Sink;
 use crate::settings::Settings;
 
 
@@ -21,9 +22,11 @@ pub(crate) struct Http1Codec<IO> {
     state: State,
     transport_stream: IO,
     /// Receives messages from [`StreamSink.download_tx`]
-    download_rx: mpsc::Receiver<Option<Bytes>>,
+    download_rx: mpsc::Receiver<Bytes>,
     /// See [`StreamSink.download_tx`]
-    download_tx: Option<mpsc::Sender<Option<Bytes>>>,
+    download_tx: Option<mpsc::Sender<Bytes>>,
+    /// Waits notify from [`StreamSink.download_eof`]
+    download_eof: Arc<Notify>,
     /// See [`StreamSource.upload_rx`]
     upload_rx: Option<mpsc::Receiver<Option<Bytes>>>,
     /// Sends messages to [`StreamSource.upload_rx`]
@@ -66,7 +69,9 @@ struct StreamSource {
 
 struct StreamSink {
     /// Sends messages to [`Http1Codec.download_rx`]
-    download_tx: mpsc::Sender<Option<Bytes>>,
+    download_tx: Option<mpsc::Sender<Bytes>>,
+    /// Notifies [`Http1Codec.download_eof`]
+    download_eof: Arc<Notify>,
     insert_connection_close: bool,
     id: log_utils::IdChain<u64>,
 }
@@ -96,6 +101,7 @@ impl<IO> Http1Codec<IO>
             transport_stream,
             download_rx,
             download_tx: Some(download_tx),
+            download_eof: Arc::new(Notify::new()),
             upload_rx: Some(upload_rx),
             upload_tx,
             upload_buffer_size: core_settings.listen_protocols.iter()
@@ -151,7 +157,8 @@ impl<IO> Http1Codec<IO>
                         id: id.clone(),
                     },
                     sink: StreamSink {
-                        download_tx: self.download_tx.take().unwrap(),
+                        download_tx: self.download_tx.take(),
+                        download_eof: self.download_eof.clone(),
                         insert_connection_close,
                         id,
                     }
@@ -206,21 +213,34 @@ impl<IO> http_codec::HttpCodec for Http1Codec<IO>
                     Err(e) => return Err(e),
                 },
                 r = self.download_rx.recv() => match r {
-                    None => return Err(io::Error::from(ErrorKind::UnexpectedEof)),
-                    Some(None) => {
-                        self.transport_stream.shutdown().await?;
-                        return Ok(None);
-                    }
-                    Some(Some(mut bytes)) => self.transport_stream.write_all_buf(&mut bytes).await?,
+                    None => {
+                        // Arbitrate the race between EOF notification and the pipe dropping
+                        let eof_fired = {
+                            let eof = self.download_eof.notified();
+                            tokio::pin!(eof);
+                            eof.enable()
+                        };
+                        if eof_fired {
+                            self.graceful_shutdown().await?;
+                            return Ok(None);
+                        }
+                        return Err(io::Error::from(ErrorKind::UnexpectedEof));
+                    },
+                    Some(mut bytes) => self.transport_stream.write_all_buf(&mut bytes).await?,
                 },
+                _ = self.download_eof.notified() => {
+                    self.graceful_shutdown().await?;
+                    return Ok(None);
+                }
             }
         }
     }
 
     async fn graceful_shutdown(&mut self) -> io::Result<()> {
-        if let Ok(Some(mut chunk)) = self.download_rx.try_recv() {
+        if let Ok(mut chunk) = self.download_rx.try_recv() {
             self.transport_stream.write_all_buf(&mut chunk).await?;
         }
+        self.transport_stream.flush().await?;
         self.transport_stream.shutdown().await
     }
 
@@ -269,13 +289,15 @@ impl http_codec::PendingRespond for StreamSink {
     fn send_intermediate_response(&self, response: ResponseHeaders) -> io::Result<()> {
         log_id!(debug, self.id, "Sending intermediate response: {:?}", response);
 
-        self.download_tx.try_send(Some(encode_response(response)))
+        self.download_tx.as_ref()
+            .ok_or_else(|| io::Error::from(ErrorKind::UnexpectedEof))?
+            .try_send(encode_response(response))
             .map_err(|e| io::Error::new(
                 ErrorKind::Other, format!("Failed to put response in queue: {}", e),
             ))
     }
 
-    fn send_response(self: Box<Self>, mut response: ResponseHeaders, eof: bool)
+    fn send_response(mut self: Box<Self>, mut response: ResponseHeaders, eof: bool)
         -> io::Result<Box<dyn http_codec::RespondedStreamSink>>
     {
         if self.insert_connection_close && !response.headers.contains_key("Connection") {
@@ -283,10 +305,15 @@ impl http_codec::PendingRespond for StreamSink {
         }
         log_id!(debug, self.id, "Sending response: {:?} (eof={})", response, eof);
 
-        if let Err(e) = self.download_tx.try_send(Some(encode_response(response))) {
-            return Err(io::Error::new(
-                ErrorKind::Other, format!("Failed to put response in queue: {}", e)
-            ));
+        self.download_tx.as_ref()
+            .ok_or_else(|| io::Error::from(ErrorKind::UnexpectedEof))?
+            .try_send(encode_response(response))
+            .map_err(|e| io::Error::new(
+                ErrorKind::Other, format!("Failed to put response in queue: {}", e),
+            ))?;
+
+        if eof {
+            self.eof()?;
         }
 
         Ok(self)
@@ -332,30 +359,32 @@ impl http_codec::RespondedStreamSink for StreamSink {
 }
 
 #[async_trait]
-impl pipe::Sink for StreamSink {
+impl Sink for StreamSink {
     fn id(&self) -> log_utils::IdChain<u64> {
         self.id.clone()
     }
 
     fn write(&mut self, data: Bytes) -> io::Result<Bytes> {
-        match self.download_tx.try_send(Some(data)) {
+        match self.download_tx.as_ref()
+            .ok_or_else(|| io::Error::from(ErrorKind::UnexpectedEof))?
+            .try_send(data)
+        {
             Ok(_) => Ok(Bytes::new()),
-            Err(mpsc::error::TrySendError::Full(unsent)) => Ok(unsent.unwrap()),
+            Err(mpsc::error::TrySendError::Full(unsent)) => Ok(unsent),
             Err(mpsc::error::TrySendError::Closed(_)) => Err(io::Error::from(ErrorKind::UnexpectedEof)),
         }
     }
 
     fn eof(&mut self) -> io::Result<()> {
-        tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                let _ = self.download_tx.send(None).await;
-                Ok(())
-            })
-        })
+        self.download_eof.notify_one();
+        Ok(())
     }
 
     async fn wait_writable(&mut self) -> io::Result<()> {
-        match self.download_tx.reserve().await {
+        match self.download_tx.as_ref()
+            .ok_or_else(|| io::Error::from(ErrorKind::UnexpectedEof))?
+            .reserve().await
+        {
             Ok(_) => Ok(()),
             Err(_) => Err(io::Error::from(ErrorKind::UnexpectedEof)),
         }
@@ -364,7 +393,10 @@ impl pipe::Sink for StreamSink {
 
 impl http_codec::DroppingSink for StreamSink {
     fn write(&mut self, data: Bytes) -> io::Result<datagram_pipe::SendStatus> {
-        match self.download_tx.try_send(Some(data)) {
+        match self.download_tx.as_ref()
+            .ok_or_else(|| io::Error::from(ErrorKind::UnexpectedEof))?
+            .try_send(data)
+        {
             Ok(_) => Ok(datagram_pipe::SendStatus::Sent),
             Err(mpsc::error::TrySendError::Full(_)) => Ok(datagram_pipe::SendStatus::Dropped),
             Err(mpsc::error::TrySendError::Closed(_)) => Err(io::Error::from(ErrorKind::UnexpectedEof)),

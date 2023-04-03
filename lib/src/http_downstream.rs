@@ -2,16 +2,18 @@ use std::collections::LinkedList;
 use std::io;
 use std::io::ErrorKind;
 use std::net::IpAddr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use http::StatusCode;
 use async_trait::async_trait;
 use bytes::Bytes;
+use http_demultiplexer::HttpDemux;
 use crate::downstream::Downstream;
-use crate::{authentication, datagram_pipe, downstream, http_codec, http_datagram_codec, http_forwarded_stream, http_icmp_codec, http_udp_codec, log_id, log_utils, net_utils, pipe, tunnel};
+use crate::{authentication, datagram_pipe, downstream, http_codec, http_datagram_codec, http_demultiplexer, http_forwarded_stream, http_icmp_codec, http_ping_handler, http_speedtest_handler, http_udp_codec, log_id, log_utils, net_utils, pipe, reverse_proxy, tunnel};
 use crate::tls_demultiplexer::Protocol;
 use crate::http_codec::HttpCodec;
 use crate::net_utils::TcpDestination;
 use crate::settings::Settings;
+use crate::shutdown::Shutdown;
 
 
 const HEALTH_CHECK_AUTHORITY: &str = "_check";
@@ -29,8 +31,11 @@ const DNS_WARNING_HEADER_NAME: &str = "X-Adguard-Vpn-Error";
 
 
 pub(crate) struct HttpDownstream {
+    core_settings: Arc<Settings>,
+    shutdown: Arc<Mutex<Shutdown>>,
     codec: Box<dyn HttpCodec>,
     tls_domain: String,
+    request_demux: HttpDemux,
 }
 
 struct TcpConnection {
@@ -61,13 +66,17 @@ struct PendingRequest {
 
 impl HttpDownstream {
     pub fn new(
-        _core_settings: Arc<Settings>,
+        core_settings: Arc<Settings>,
+        shutdown: Arc<Mutex<Shutdown>>,
         codec: Box<dyn HttpCodec>,
         tls_domain: String,
     ) -> Self {
         Self {
+            core_settings: core_settings.clone(),
+            shutdown,
             codec,
             tls_domain,
+            request_demux: HttpDemux::new(core_settings),
         }
     }
 }
@@ -75,15 +84,57 @@ impl HttpDownstream {
 #[async_trait]
 impl Downstream for HttpDownstream {
     async fn listen(&mut self) -> io::Result<Option<Box<dyn downstream::PendingMultiplexedRequest>>> {
-        let stream = match self.codec.listen().await? {
-            None => return Ok(None),
-            Some(s) => s,
-        };
-        let request = stream.request().request();
-        let stream_id = stream.id();
-        log_id!(debug, stream_id, "Received request: {:?}", net_utils::scrub_request(&request));
+        loop {
+            let stream = match self.codec.listen().await? {
+                None => return Ok(None),
+                Some(s) => s,
+            };
+            let request = stream.request().request();
+            let stream_id = stream.id();
+            log_id!(debug, stream_id, "Received request: {:?}", net_utils::scrub_request(request));
 
-        Ok(Some(Box::new(PendingRequest { stream, id: stream_id })))
+            let protocol = self.protocol();
+            let settings = self.core_settings.clone();
+            let shutdown = self.shutdown.clone();
+            match self.request_demux.select(self.protocol(), request) {
+                net_utils::Channel::Tunnel =>
+                    break Ok(Some(Box::new(PendingRequest { stream, id: stream_id }))),
+                net_utils::Channel::Ping => {
+                    tokio::spawn(async move {
+                        http_ping_handler::listen(
+                            shutdown.clone(),
+                            Box::new(http_codec::stream_into_codec(stream, protocol)),
+                            settings.tls_handshake_timeout,
+                            stream_id,
+                        ).await
+                    });
+                }
+                net_utils::Channel::Speedtest => {
+                    tokio::spawn(async move {
+                        http_speedtest_handler::listen(
+                            shutdown.clone(),
+                            Box::new(http_codec::stream_into_codec(stream, protocol)),
+                            settings.tls_handshake_timeout,
+                            stream_id,
+                        ).await
+                    });
+                }
+                net_utils::Channel::ReverseProxy => {
+                    tokio::spawn({
+                        let sni = self.tls_domain.clone();
+                        async move {
+                            reverse_proxy::listen(
+                                settings,
+                                shutdown.clone(),
+                                Box::new(http_codec::stream_into_codec(stream, protocol)),
+                                sni,
+                                stream_id,
+                            ).await
+                        }
+                    });
+                }
+            }
+        }
     }
 
     async fn graceful_shutdown(&mut self) -> io::Result<()> {

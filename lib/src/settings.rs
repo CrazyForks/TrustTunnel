@@ -14,33 +14,22 @@ use crate::authentication::file_based::FileBasedAuthenticator;
 use crate::authentication::radius::RadiusAuthenticator;
 use crate::utils;
 
-pub type BuilderResult<T> = Result<T, BuilderError>;
 pub type Socks5BuilderResult<T> = Result<T, Socks5Error>;
 
 #[derive(Debug)]
 pub enum ValidationError {
     /// Invalid [`Settings.listen_address`]
     ListenAddress(String),
-    /// Invalid [`Settings.tunnel_tls_hosts`]
-    TunnelTlsHostInfo(String),
-    /// Invalid [`Settings.ping_tls_hosts`]
+    /// Invalid [`TlsHostsSettings.main_hosts`]
+    MainTlsHostInfo(String),
+    /// Invalid [`TlsHostsSettings.ping_hosts`]
     PingTlsHostInfo(String),
-    /// Invalid [`Settings.speed_tls_hosts`]
+    /// Invalid [`TlsHostsSettings.speedtest_hosts`]
     SpeedTlsHostInfo(String),
     /// Invalid [`Settings.reverse_proxy`]
     ReverseProxy(String),
     /// [`Settings.listen_protocols`] are not set
     ListenProtocols,
-}
-
-#[derive(Debug)]
-pub enum BuilderError {
-    /// Invalid [`Settings.tunnel_tls_hosts`]
-    TunnelTlsHostInfo(String),
-    /// Invalid authentication info
-    AuthInfo(String),
-    /// Built settings did not pass the validation
-    Validation(ValidationError),
 }
 
 #[derive(Debug)]
@@ -132,8 +121,8 @@ pub struct TlsHostInfo {
 #[derive(Deserialize)]
 #[cfg_attr(test, derive(Default))]
 pub struct TlsHostsSettings {
-    /// See [`TlsSettingsBuilder::tunnel_hosts`]
-    pub(crate) tunnel_hosts: Vec<TlsHostInfo>,
+    /// See [`TlsSettingsBuilder::main_hosts`]
+    pub(crate) main_hosts: Vec<TlsHostInfo>,
     /// See [`TlsSettingsBuilder::ping_hosts`]
     #[serde(default)]
     pub(crate) ping_hosts: Vec<TlsHostInfo>,
@@ -154,18 +143,18 @@ pub struct TlsHostsSettings {
 
 #[derive(Deserialize)]
 pub struct ReverseProxySettings {
-    /// The origin server address
-    pub server_address: SocketAddr,
-    /// The connection timeout
+    /// See [`ReverseProxySettingsBuilder::server_address`]
+    pub(crate) server_address: SocketAddr,
+    /// See [`ReverseProxySettingsBuilder::path_mask`]
+    pub(crate) path_mask: String,
+    /// See [`ReverseProxySettingsBuilder::connection_timeout`]
     #[serde(default = "Settings::default_tcp_connections_timeout")]
     #[serde(rename(deserialize = "connection_timeout_secs"))]
     #[serde(deserialize_with = "deserialize_duration_secs")]
-    pub connection_timeout: Duration,
-    /// With this one set to `true` the endpoint overrides the HTTP method while
-    /// translating an HTTP3 request to HTTP1 in case the request has the `GET` method
-    /// and its path is `/`
+    pub(crate) connection_timeout: Duration,
+    /// See [`ReverseProxySettingsBuilder::h3_backward_compatibility`]
     #[serde(default)]
-    pub h3_backward_compatibility: bool,
+    pub(crate) h3_backward_compatibility: bool,
 }
 
 #[derive(Deserialize)]
@@ -364,6 +353,10 @@ pub struct QuicSettingsBuilder {
     settings: QuicSettings,
 }
 
+pub struct ReverseProxySettingsBuilder {
+    settings: ReverseProxySettings,
+}
+
 pub struct RadiusAuthenticatorSettingsBuilder {
     settings: RadiusAuthenticatorSettings,
 }
@@ -390,13 +383,7 @@ impl Settings {
             return Err(ValidationError::ListenAddress("Not set".to_string()));
         }
 
-        if let Some(x) = &self.reverse_proxy {
-            if x.server_address.ip().is_unspecified() && x.server_address.port() == 0 {
-                return Err(ValidationError::ReverseProxy(
-                    "Invalid origin server address".into()
-                ));
-            }
-        }
+        self.reverse_proxy.as_ref().map(ReverseProxySettings::validate).transpose()?;
 
         if self.listen_protocols.is_empty() {
             return Err(ValidationError::ListenProtocols);
@@ -493,12 +480,12 @@ impl TlsHostsSettings {
     }
 
     pub(crate) fn validate(&self) -> Result<(), ValidationError> {
-        if self.tunnel_hosts.is_empty() {
-            return Err(ValidationError::TunnelTlsHostInfo("Not set".to_string()));
+        if self.main_hosts.is_empty() {
+            return Err(ValidationError::MainTlsHostInfo("Not set".to_string()));
         }
 
-        let hosts = Self::validate_tls_hosts(self.tunnel_hosts.iter(), HashSet::new())
-            .map_err(ValidationError::TunnelTlsHostInfo)?;
+        let hosts = Self::validate_tls_hosts(self.main_hosts.iter(), HashSet::new())
+            .map_err(ValidationError::MainTlsHostInfo)?;
         let hosts = Self::validate_tls_hosts(self.ping_hosts.iter(), hosts)
             .map_err(ValidationError::PingTlsHostInfo)?;
         let hosts = Self::validate_tls_hosts(self.speedtest_hosts.iter(), hosts)
@@ -610,6 +597,24 @@ impl QuicSettings {
     }
 }
 
+impl ReverseProxySettings {
+    pub fn builder() -> ReverseProxySettingsBuilder {
+        ReverseProxySettingsBuilder::new()
+    }
+
+    pub fn validate(&self) -> Result<(), ValidationError> {
+        if self.server_address.port() == 0 {
+            return Err(ValidationError::ReverseProxy("Server address is not set".to_string()));
+        }
+
+        if self.path_mask.is_empty() || !self.path_mask.starts_with('/') {
+            return Err(ValidationError::ReverseProxy(format!("Invalid path mask: {}", self.path_mask)));
+        }
+
+        Ok(())
+    }
+}
+
 impl RadiusAuthenticatorSettings {
     pub fn builder() -> RadiusAuthenticatorSettingsBuilder {
         RadiusAuthenticatorSettingsBuilder::new()
@@ -689,8 +694,8 @@ impl SettingsBuilder {
     }
 
     /// Finalize [`Settings`]
-    pub fn build(self) -> BuilderResult<Settings> {
-        self.settings.validate().map_err(BuilderError::Validation)?;
+    pub fn build(self) -> Result<Settings, ValidationError> {
+        self.settings.validate()?;
 
         Ok(self.settings)
     }
@@ -783,7 +788,7 @@ impl TlsSettingsBuilder {
     fn new() -> Self {
         Self {
             settings: TlsHostsSettings {
-                tunnel_hosts: Default::default(),
+                main_hosts: Default::default(),
                 ping_hosts: Default::default(),
                 speedtest_hosts: Default::default(),
                 reverse_proxy_hosts: Default::default(),
@@ -793,14 +798,14 @@ impl TlsSettingsBuilder {
     }
 
     /// Finalize [`TlsHostsSettings`]
-    pub fn build(self) -> BuilderResult<TlsHostsSettings> {
-        self.settings.validate().map_err(BuilderError::Validation)?;
+    pub fn build(self) -> Result<TlsHostsSettings, ValidationError> {
+        self.settings.validate()?;
         Ok(self.settings)
     }
 
-    /// Set the TLS hosts for traffic tunneling
-    pub fn tunnel_hosts(mut self, hosts: Vec<TlsHostInfo>) -> Self {
-        self.settings.tunnel_hosts = hosts;
+    /// Set the main TLS hosts
+    pub fn main_hosts(mut self, hosts: Vec<TlsHostInfo>) -> Self {
+        self.settings.main_hosts = hosts;
         self
     }
 
@@ -1038,6 +1043,55 @@ impl QuicSettingsBuilder {
     }
 }
 
+impl ReverseProxySettingsBuilder {
+    fn new() -> Self {
+        Self {
+            settings: ReverseProxySettings {
+                server_address: (Ipv4Addr::UNSPECIFIED, 0).into(),
+                path_mask: Default::default(),
+                connection_timeout: Settings::default_tcp_connections_timeout(),
+                h3_backward_compatibility: false,
+            }
+        }
+    }
+
+    /// Finalize [`ReverseProxySettings`]
+    pub fn build(self) -> Result<ReverseProxySettings, ValidationError> {
+        self.settings.validate()?;
+        Ok(self.settings)
+    }
+
+    /// Set the proxy server address
+    pub fn server_address<A: ToSocketAddrs>(mut self, v: A) -> io::Result<Self> {
+        self.settings.server_address = v.to_socket_addrs()?
+            .next()
+            .ok_or_else(|| io::Error::new(ErrorKind::Other, "Parsed address to empty list"))?;
+        Ok(self)
+    }
+
+    /// Connections to [the main hosts](TlsHostsSettings.main_hosts) with
+    /// paths starting with this mask are routed to the reverse proxy server.
+    /// MUST start with slash.
+    pub fn path_mask(mut self, v: String) -> Self {
+        self.settings.path_mask = v;
+        self
+    }
+
+    /// Set the connection timeout
+    pub fn connection_timeout(mut self, v: Duration) -> Self {
+        self.settings.connection_timeout = v;
+        self
+    }
+
+    /// With this one set to `true` the endpoint overrides the HTTP method while
+    /// translating an HTTP3 request to HTTP1 in case the request has the `GET` method
+    /// and its path is `/` or matches [`ReverseProxySettings.path_mask`]
+    pub fn h3_backward_compatibility(mut self, v: bool) -> Self {
+        self.settings.h3_backward_compatibility = v;
+        self
+    }
+}
+
 impl RadiusAuthenticatorSettingsBuilder {
     fn new() -> Self {
         Self {
@@ -1119,7 +1173,7 @@ impl IcmpSettingsBuilder {
     }
 
     /// Finalize [`IcmpSettings`]
-    pub fn build(self) -> BuilderResult<IcmpSettings> {
+    pub fn build(self) -> Result<IcmpSettings, ValidationError> {
         Ok(self.settings)
     }
 }
@@ -1146,7 +1200,7 @@ impl MetricsSettingsBuilder {
     }
 
     /// Finalize [`MetricsSettings`]
-    pub fn build(self) -> BuilderResult<MetricsSettings> {
+    pub fn build(self) -> Result<MetricsSettings, ValidationError> {
         Ok(self.settings)
     }
 }

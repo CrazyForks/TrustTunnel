@@ -58,6 +58,9 @@ The file struct reflects the library settings (`struct Settings` in [settings.rs
   "reverse_proxy": Optional {
     /// The origin server address
     "server_address": "127.0.0.1:1111",
+    /// Connections to the main hosts with paths starting with this mask are routed
+    /// to the reverse proxy server. MUST start with slash.
+    "path_mask": "/proxy",
     /// The connection timeout
     "connection_timeout_secs": Default(30),
     /// With this one set to `true` the endpoint overrides the HTTP method while
@@ -193,8 +196,8 @@ These settings may be reloaded dynamically (see [here](#dynamic-reloading-of-tls
 
 ```
 {
-  /// The TLS hosts for traffic tunneling
-  "tunnel_hosts": [
+  /// The TLS hosts for traffic tunneling and service requests handling
+  "main_hosts": [
     {
       /// Used as a key for selecting a certificate chain in TLS handshake.
       /// MUST be unique.

@@ -4,6 +4,7 @@ use std::io;
 use std::io::ErrorKind;
 use rustls::{Certificate, PrivateKey};
 use crate::{net_utils, settings, utils};
+use crate::net_utils::Channel;
 use crate::settings::{ListenProtocolSettings, Settings};
 
 
@@ -15,18 +16,6 @@ pub(crate) enum Protocol {
     Http1,
     Http2,
     Http3,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub(crate) enum Channel {
-    /// The connection is used for tunneling client's connections (see [`crate::tunnel`])
-    Tunnel,
-    /// The connection is used just for measuring a ping
-    Ping,
-    /// The connection is used for a speedtest (see [`crate::http_speedtest_handler`])
-    Speed,
-    /// The connection is used for proxying requests further (see [`crate::reverse_proxy`])
-    ReverseProxy,
 }
 
 struct Host {
@@ -83,7 +72,7 @@ impl Debug for ConnectionMeta {
 }
 
 pub(crate) struct TlsDemux {
-    tunnel_hosts: HashMap<String, Host>,
+    main_hosts: HashMap<String, Host>,
     reverse_proxy_hosts: HashMap<String, Host>,
     ping_hosts: HashMap<String, Host>,
     speedtest_hosts: HashMap<String, Host>,
@@ -121,7 +110,8 @@ impl Protocol {
 
 impl TlsDemux {
     pub fn new(settings: &Settings, tls_settings: &settings::TlsHostsSettings) -> io::Result<Self> {
-        let make_entry = |x: &settings::TlsHostInfo| -> io::Result<(String, Host)> {
+        // false-positive
+        #[allow(unused_variables)] let make_entry = |x: &settings::TlsHostInfo| -> io::Result<(String, Host)> {
             Ok((
                 x.hostname.clone(),
                 Host {
@@ -148,7 +138,7 @@ impl TlsDemux {
         }
 
         Ok(Self {
-            tunnel_hosts: make_hosts!(tls_settings.tunnel_hosts)?,
+            main_hosts: make_hosts!(tls_settings.main_hosts)?,
             ping_hosts: make_hosts!(tls_settings.ping_hosts)?,
             speedtest_hosts: make_hosts!(tls_settings.speedtest_hosts)?,
             reverse_proxy_hosts: match (settings.reverse_proxy.as_ref(), &tls_settings.reverse_proxy_hosts) {
@@ -174,7 +164,7 @@ impl TlsDemux {
     /// the connection. So try accepting it with the first certificate and change
     /// the server certificate afterwards if needed.
     pub(crate) fn get_quic_connection_bootstrap_meta(&self) -> ConnectionMeta {
-        let (name, host) = self.tunnel_hosts.iter().next().unwrap();
+        let (name, host) = self.main_hosts.iter().next().unwrap();
 
         ConnectionMeta {
             sni: name.clone(),
@@ -204,7 +194,7 @@ impl TlsDemux {
         }
 
         let (protocol, channel, host, auth) =
-            if let Some(h) = self.tunnel_hosts.get(&sni) {
+            if let Some(h) = self.main_hosts.get(&sni) {
                 (
                     self.select_tunnel_channel_protocol(parsed_alpn.iter(), alpn)?,
                     Channel::Tunnel,
@@ -228,9 +218,9 @@ impl TlsDemux {
             } else if let Some(h) = self.ping_hosts.get(&sni) {
                 (parsed_alpn.iter().max().cloned().unwrap_or(DEFAULT_PROTOCOL), Channel::Ping, h, None)
             } else if let Some(h) = self.speedtest_hosts.get(&sni) {
-                (parsed_alpn.iter().max().cloned().unwrap_or(DEFAULT_PROTOCOL), Channel::Speed, h, None)
+                (parsed_alpn.iter().max().cloned().unwrap_or(DEFAULT_PROTOCOL), Channel::Speedtest, h, None)
             } else if let Some((host, auth_creds)) = sni.split_once('.')
-                .and_then(|(a, b)| self.tunnel_hosts.get(b).zip(Some(a)))
+                .and_then(|(a, b)| self.main_hosts.get(b).zip(Some(a)))
             {
                 (
                     self.select_tunnel_channel_protocol(parsed_alpn.iter(), alpn)?,
@@ -280,13 +270,15 @@ impl TlsDemux {
 mod tests {
     use std::net::ToSocketAddrs;
     use tls_demultiplexer::TlsDemux;
+    use crate::net_utils::Channel;
     use crate::settings::{Http1Settings, Http2Settings, ListenProtocolSettings, QuicSettings, ReverseProxySettings, Settings, TlsHostInfo, TlsHostsSettings};
     use crate::tls_demultiplexer;
-    use crate::tls_demultiplexer::{Channel, ConnectionMeta, Protocol};
+    use crate::tls_demultiplexer::{ConnectionMeta, Protocol};
 
     fn dummy_reverse_proxy_settings() -> ReverseProxySettings {
         ReverseProxySettings {
             server_address: "0.0.0.0:0".to_socket_addrs().unwrap().next().unwrap(),
+            path_mask: Default::default(),
             connection_timeout: Default::default(),
             h3_backward_compatibility: Default::default(),
         }
@@ -316,7 +308,7 @@ mod tests {
         settings.listen_protocols = listen_protocols;
 
         let mut tls_settings = TlsHostsSettings::default();
-        tls_settings.tunnel_hosts = vec![make_tls_host(TEST_HOST.to_string())];
+        tls_settings.main_hosts = vec![make_tls_host(TEST_HOST.to_string())];
 
         let demux = TlsDemux::new(&settings, &tls_settings).unwrap();
         demux.select(advertised_protocols.iter().map(Protocol::as_alpn).map(str::as_bytes), TEST_HOST.to_string())
@@ -461,7 +453,7 @@ mod tests {
         let test_samples = vec![
             Sample { sni: "tunnel", expected_selection: Channel::Tunnel },
             Sample { sni: "ping", expected_selection: Channel::Ping },
-            Sample { sni: "speedtest", expected_selection: Channel::Speed },
+            Sample { sni: "speedtest", expected_selection: Channel::Speedtest },
             Sample { sni: "reverse.proxy", expected_selection: Channel::ReverseProxy },
         ];
 
@@ -469,7 +461,7 @@ mod tests {
         settings.reverse_proxy = Some(dummy_reverse_proxy_settings());
 
         let mut tls_settings = TlsHostsSettings::default();
-        tls_settings.tunnel_hosts = vec![make_tls_host("tunnel".to_string())];
+        tls_settings.main_hosts = vec![make_tls_host("tunnel".to_string())];
         tls_settings.ping_hosts = vec![make_tls_host("ping".to_string())];
         tls_settings.speedtest_hosts = vec![make_tls_host("speedtest".to_string())];
         tls_settings.reverse_proxy_hosts = vec![make_tls_host("reverse.proxy".to_string())];
@@ -492,7 +484,7 @@ mod tests {
         settings.reverse_proxy = Some(dummy_reverse_proxy_settings());
 
         let mut tls_settings = TlsHostsSettings::default();
-        tls_settings.tunnel_hosts = vec![make_tls_host(TUNNEL_HOST.to_string())];
+        tls_settings.main_hosts = vec![make_tls_host(TUNNEL_HOST.to_string())];
         tls_settings.ping_hosts = vec![make_tls_host(format!("ping.{TUNNEL_HOST}"))];
         tls_settings.speedtest_hosts = vec![make_tls_host(format!("speedtest.{TUNNEL_HOST}"))];
         tls_settings.reverse_proxy_hosts = vec![make_tls_host(format!("reverse.proxy.{TUNNEL_HOST}"))];

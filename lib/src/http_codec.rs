@@ -151,3 +151,39 @@ pub(crate) trait HttpCodec: Send {
     /// Get the codec protocol
     fn protocol(&self) -> Protocol;
 }
+
+/// Turn a [`Stream`] into a [`HttpCodec`] which produces the single stream.
+pub(crate) fn stream_into_codec(stream: Box<dyn Stream>, protocol: Protocol) -> impl HttpCodec {
+    SingleRequestCodec {
+        stream: Some(stream),
+        protocol,
+    }
+}
+
+struct SingleRequestCodec {
+    stream: Option<Box<dyn Stream>>,
+    protocol: Protocol,
+}
+
+#[async_trait]
+impl HttpCodec for SingleRequestCodec {
+    async fn listen(&mut self) -> io::Result<Option<Box<dyn Stream>>> {
+        if let Some(stream) = self.stream.take() {
+            return Ok(Some(stream));
+        }
+
+        futures::future::pending().await
+    }
+
+    async fn graceful_shutdown(&mut self) -> io::Result<()> {
+        if let Some((_, respond)) = self.stream.take().map(Stream::split) {
+            let _ = respond.send_bad_response(http::StatusCode::INTERNAL_SERVER_ERROR, vec![]);
+        }
+
+        Ok(())
+    }
+
+    fn protocol(&self) -> Protocol {
+        self.protocol
+    }
+}

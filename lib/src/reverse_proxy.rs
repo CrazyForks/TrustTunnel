@@ -1,13 +1,14 @@
 use std::io;
 use std::io::ErrorKind;
 use std::net::Ipv4Addr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use bytes::{BufMut, BytesMut};
-use crate::{core, forwarder, http1_codec, log_id, log_utils, pipe, tunnel};
+use crate::{forwarder, http1_codec, log_id, log_utils, pipe, settings, tunnel};
 use crate::forwarder::TcpConnector;
 use crate::http_codec::HttpCodec;
 use crate::net_utils::TcpDestination;
 use crate::pipe::DuplexPipe;
+use crate::shutdown::Shutdown;
 use crate::tls_demultiplexer::Protocol;
 use crate::tcp_forwarder::TcpForwarder;
 
@@ -16,13 +17,14 @@ const ORIGINAL_PROTOCOL_HEADER: &str = "X-Original-Protocol";
 
 
 pub(crate) async fn listen(
-    context: Arc<core::Context>,
+    settings: Arc<settings::Settings>,
+    shutdown: Arc<Mutex<Shutdown>>,
     mut codec: Box<dyn HttpCodec>,
     sni: String,
     log_id: log_utils::IdChain<u64>,
 ) {
     let (mut shutdown_notification, _shutdown_completion) = {
-        let shutdown = context.shutdown.lock().unwrap();
+        let shutdown = shutdown.lock().unwrap();
         (shutdown.notification_handler(), shutdown.completion_guard())
     };
 
@@ -33,7 +35,7 @@ pub(crate) async fn listen(
                 Err(e) => log_id!(debug, log_id, "Shutdown notification failure: {}", e),
             }
         },
-        x = listen_inner(context, codec.as_mut(), sni, &log_id) => {
+        x = listen_inner(settings, codec.as_mut(), sni, &log_id) => {
             match x {
                 Ok(_) => (),
                 Err(e) => log_id!(debug, log_id, "Request processing failure: {}", e),
@@ -47,14 +49,14 @@ pub(crate) async fn listen(
 }
 
 async fn listen_inner(
-    context: Arc<core::Context>,
+    settings: Arc<settings::Settings>,
     codec: &mut dyn HttpCodec,
     sni: String,
     log_id: &log_utils::IdChain<u64>,
 ) -> io::Result<()> {
     let mut pipe = match tokio::time::timeout(
-        context.settings.reverse_proxy.as_ref().unwrap().connection_timeout,
-        establish_tunnel(&context, codec, sni, log_id)
+        settings.reverse_proxy.as_ref().unwrap().connection_timeout,
+        establish_tunnel(&settings, codec, sni, log_id),
     ).await.map_err(|_| io::Error::from(ErrorKind::TimedOut))?? {
         Some(((client_source, client_sink), (server_source, server_sink))) =>
             DuplexPipe::new(
@@ -69,7 +71,7 @@ async fn listen_inner(
         match codec.listen().await {
             Ok(Some(x)) => Err(io::Error::new(
                 ErrorKind::Other,
-                format!("Got unexpected request while processing previous: {:?}", x.request().request())
+                format!("Got unexpected request while processing previous: {:?}", x.request().request()),
             )),
             Ok(None) => Ok(()),
             Err(e) => Err(e),
@@ -78,12 +80,12 @@ async fn listen_inner(
 
     tokio::try_join!(
         listen_io,
-        pipe.exchange(context.settings.reverse_proxy.as_ref().unwrap().connection_timeout),
+        pipe.exchange(settings.reverse_proxy.as_ref().unwrap().connection_timeout),
     ).map(|_| ())
 }
 
 async fn establish_tunnel(
-    context: &core::Context,
+    settings: &Arc<settings::Settings>,
     codec: &mut dyn HttpCodec,
     sni: String,
     log_id: &log_utils::IdChain<u64>,
@@ -100,12 +102,12 @@ async fn establish_tunnel(
     };
     log_id!(trace, log_id, "Received request: {:?}", request.request());
 
-    let forwarder = Box::new(TcpForwarder::new(context.settings.clone()));
+    let forwarder = Box::new(TcpForwarder::new(settings.clone()));
     let (mut server_source, mut server_sink) = forwarder.connect(
         log_id.clone(),
         forwarder::TcpConnectionMeta {
             client_address: Ipv4Addr::UNSPECIFIED.into(),
-            destination: TcpDestination::Address(context.settings.reverse_proxy.as_ref().unwrap().server_address),
+            destination: TcpDestination::Address(settings.reverse_proxy.as_ref().unwrap().server_address),
             auth: None,
             tls_domain: sni,
             user_agent: None,
@@ -122,7 +124,7 @@ async fn establish_tunnel(
         Protocol::Http2 => unreachable!(),
         Protocol::Http3 => {
             request_headers.version = http::Version::HTTP_11;
-            if context.settings.reverse_proxy.as_ref().unwrap().h3_backward_compatibility
+            if settings.reverse_proxy.as_ref().unwrap().h3_backward_compatibility
                 && request_headers.method == http::Method::GET
                 && request_headers.uri.path() == "/"
             {
@@ -132,7 +134,7 @@ async fn establish_tunnel(
     }
     request_headers.headers.insert(
         ORIGINAL_PROTOCOL_HEADER,
-        http::HeaderValue::from_static(codec.protocol().as_str())
+        http::HeaderValue::from_static(codec.protocol().as_str()),
     );
 
     let encoded = http1_codec::encode_request(&request_headers);
@@ -155,8 +157,8 @@ async fn establish_tunnel(
             http1_codec::DecodeStatus::Partial(b) => buffer = b,
             http1_codec::DecodeStatus::Complete(mut h, tail) => {
                 h.version = original_version; // restore the version in case it was not the same
-                break (h, tail.freeze())
-            },
+                break (h, tail.freeze());
+            }
         }
     };
 
