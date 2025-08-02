@@ -17,11 +17,6 @@ Increment version:
   key: JOB1
   docker:
     image: adguard/core-libs:2.6
-    volumes:
-      ${bamboo.working.directory}: ${bamboo.working.directory}
-      ${bamboo.tmp.directory}: ${bamboo.tmp.directory}
-      ${bamboo.git.cache.directory}: ${bamboo.git.cache.directory}
-      ${system.HOME}/.ssh: /root/.ssh
     docker-run-arguments: [ ]
   tasks:
     - !include docker-clean.yaml
@@ -30,6 +25,9 @@ Increment version:
         path: vpn-libs-endpoint
         force-clean-build: 'true'
         description: Checkout
+    - checkout:
+        repository: git-scripts
+        path: git-scripts
     - script:
         interpreter: SHELL
         scripts:
@@ -43,9 +41,7 @@ Increment version:
                 bamboo_custom_version=
             fi
             
-            git remote set-url origin ${bamboo_planRepository_repositoryUrl}
-            git pull
-            git reset
+            ../git-scripts/git_kit.sh pull ${bamboo_planRepository_repositoryUrl}
 
             ./scripts/increment_version.sh ./endpoint/Cargo.toml ${bamboo_custom_version}
             git add ./endpoint/Cargo.toml Cargo.lock CHANGELOG.md
@@ -63,6 +59,8 @@ variables:
 
 repositories:
   - core-libs/vpn-libs-endpoint:
+      scope: global
+  - git-scripts:
       scope: global
 
 branches:
