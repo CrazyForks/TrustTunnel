@@ -1366,7 +1366,7 @@ where
         )
     })?;
 
-    let res = clients
+    let res: Vec<Client> = clients
         .get("client")
         .and_then(Item::as_array_of_tables)
         .ok_or(serde::de::Error::invalid_value(
@@ -1374,11 +1374,27 @@ where
             &"An array of clients",
         ))?
         .iter()
-        .map(|x| Client {
-            username: demangle_toml_string(x["username"].to_string()),
-            password: demangle_toml_string(x["password"].to_string()),
+        .enumerate()
+        .map(|(idx, x)| {
+            let username = demangle_toml_string(x["username"].to_string());
+            let password = demangle_toml_string(x["password"].to_string());
+            
+            if username.is_empty() {
+                return Err(serde::de::Error::custom(format!(
+                    "Client #{}: username cannot be empty",
+                    idx + 1
+                )));
+            }
+            if password.is_empty() {
+                return Err(serde::de::Error::custom(format!(
+                    "Client #{}: password cannot be empty",
+                    idx + 1
+                )));
+            }
+            
+            Ok(Client { username, password })
         })
-        .collect();
+        .collect::<Result<Vec<_>, _>>()?;
 
     Ok(res)
 }

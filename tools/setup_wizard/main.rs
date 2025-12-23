@@ -173,7 +173,18 @@ Required in non-interactive mode."#,
             .get_one::<String>(CREDENTIALS_PARAM_NAME)
             .map(|x| x.splitn(2, ':'))
             .and_then(|mut x| x.next().zip(x.next()))
-            .map(|(a, b)| (a.to_string(), b.to_string())),
+            .map(|(a, b)| (a.to_string(), b.to_string()))
+            .and_then(|(username, password)| {
+                if username.is_empty() {
+                    eprintln!("Error: Username cannot be empty");
+                    std::process::exit(1);
+                }
+                if password.is_empty() {
+                    eprintln!("Error: Password cannot be empty");
+                    std::process::exit(1);
+                }
+                Some((username, password))
+            }),
         hostname: args.get_one::<String>(HOSTNAME_PARAM_NAME).cloned(),
         library_settings_file: args
             .get_one::<String>(LIBRARY_SETTINGS_FILE_PARAM_NAME)
