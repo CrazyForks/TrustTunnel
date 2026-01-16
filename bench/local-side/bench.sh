@@ -45,7 +45,7 @@ run_through_tun() {
       --output "$CONTAINER_RESULTS_DIR_PATH/lf-dl-$jobs_num.json" \
       --jobs "$jobs_num" \
       --proto "http2" \
-      --download "http://$remote_ip:8080/download/1GiB.dat"
+      --download "https://$remote_ip:8080/download/1GiB.dat"
     echo "...done"
 
     echo "Running HTTP3 download test with ${jobs_num} parallel jobs..."
@@ -53,14 +53,14 @@ run_through_tun() {
       --output "$CONTAINER_RESULTS_DIR_PATH/lf-dl-$jobs_num.json" \
       --jobs "$jobs_num" \
       --proto "http3" \
-      --download "http://$remote_ip:8080/download/1GiB.dat"
+      --download "https://$remote_ip:8080/download/1GiB.dat"
     echo "...done"
 
     echo "Running upload test with ${jobs_num} parallel jobs..."
     run_test "$set_up_test_suite_cmd" "$tear_down_test_suite_cmd" "$results_host_dir_path" \
       --output "$CONTAINER_RESULTS_DIR_PATH/lf-ul-$jobs_num.json" \
       --jobs "$jobs_num" \
-      --upload "http://$remote_ip:8080/upload"
+      --upload "https://$remote_ip:8080/upload"
     echo "...done"
   done
 }
@@ -80,14 +80,14 @@ run_through_proxy() {
       "${common_script_args[@]}" \
       --output "$CONTAINER_RESULTS_DIR_PATH/lf-dl-$jobs_num.json" \
       --jobs "$jobs_num" \
-      --download "http://$remote_ip:8080/download/1GiB.dat"
+      --download "https://$remote_ip:8080/download/1GiB.dat"
     echo "...done"
     echo "Running upload test with ${jobs_num} parallel jobs..."
     run_test "$set_up_test_suite_cmd" "$tear_down_test_suite_cmd" "$results_host_dir_path" \
       "${common_script_args[@]}" \
       --output "$CONTAINER_RESULTS_DIR_PATH/lf-ul-$jobs_num.json" \
       --jobs "$jobs_num" \
-      --upload "http://$remote_ip:8080/upload"
+      --upload "https://$remote_ip:8080/upload"
     echo "...done"
   done
 
@@ -114,7 +114,7 @@ run_no_vpn() {
   run_test "$set_up_test_suite_cmd" "$tear_down_test_suite_cmd" "$output_dir_path" \
     --output "$CONTAINER_RESULTS_DIR_PATH/sf-dl.json" \
     --jobs 1000 \
-    --download "http://$remote_ip:8080/download/100KiB.dat"
+    --download "https://$remote_ip:8080/download/100KiB.dat"
   echo "...done"
 
   echo "Bench without any VPN is done"
@@ -141,7 +141,7 @@ run_through_wg() {
   run_test "$set_up_test_suite_cmd" "$tear_down_test_suite_cmd" "$output_dir" \
     --output "$CONTAINER_RESULTS_DIR_PATH/sf-dl.json" \
     --jobs 1000 \
-    --download "http://$remote_ip:8080/download/100KiB.dat"
+    --download "https://$remote_ip:8080/download/100KiB.dat"
   echo "...done"
 
   echo "...done"
@@ -187,7 +187,7 @@ run_through_ag() {
     run_test "$set_up_test_suite_cmd" "$tear_down_test_suite_cmd" "$output_dir/${protocol}/" \
       --output "$CONTAINER_RESULTS_DIR_PATH/sf-dl.json" \
       --jobs 10 \
-      --download "http://$remote_ip:8080/download/100KiB.dat" \
+      --download "https://$remote_ip:8080/download/100KiB.dat" \
       --proxy "socks5://127.0.0.1" \
       --socks-ports-range "(1080,1179)"
     echo "...done"
