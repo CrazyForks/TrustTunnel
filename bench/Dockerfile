@@ -7,7 +7,7 @@ ARG LLVM_MAJOR_VER=17
 # Install the required utilities
 RUN apt update && \
     apt install -y build-essential curl git gnupg lsb-release iproute2 \
-    net-tools software-properties-common wget tar libssl-dev
+    net-tools software-properties-common wget tar libssl-dev xz-utils
 
 # Install pre-built CMake
 RUN set -ex; \
@@ -22,6 +22,21 @@ RUN set -ex; \
         -o /tmp/cmake.tar.gz && \
     tar -xzf /tmp/cmake.tar.gz -C /usr/local --strip-components=1 && \
     rm /tmp/cmake.tar.gz
+
+# Install pre-built static curl with HTTP/3 support
+RUN set -ex; \
+    ARCH=$(uname -m); \
+    case "$ARCH" in \
+        x86_64)  CURL_ARCH="x86_64" ;; \
+        aarch64) CURL_ARCH="aarch64" ;; \
+        *) echo "Unsupported architecture: $ARCH"; exit 1 ;; \
+    esac; \
+    CURL_VERSION="8.18.0"; \
+    curl -L "https://github.com/stunnel/static-curl/releases/download/${CURL_VERSION}/curl-linux-${CURL_ARCH}-glibc-${CURL_VERSION}.tar.xz" \
+        -o /tmp/curl.tar.xz && \
+    tar -xf /tmp/curl.tar.xz -C /usr/local/bin && \
+    rm /tmp/curl.tar.xz && \
+    chmod +x /usr/local/bin/curl
 
 ## Install LLVM
 RUN curl -O https://apt.llvm.org/llvm.sh && \
