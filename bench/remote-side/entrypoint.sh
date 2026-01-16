@@ -12,5 +12,4 @@ dd bs=$((1024 * 1024)) count=1024 if=/dev/random of="$NGINX_DOWNLOAD_DIR/$NGINX_
 dd bs=1024 count=128 if=/dev/random of="$NGINX_DOWNLOAD_DIR/$NGINX_100KB_FILENAME"
 
 nginx -g 'daemon off;' -c "$NGINX_CONF_FILENAME" -p "$(pwd)" &
-iperf3 -s &
 wait

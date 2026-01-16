@@ -35,9 +35,6 @@ PARSER.add_argument("-u", "--upload",
                     URL for the file upload test. Shouldn't contain a file name, it is generated automatically.
                     """,
                     type=str)
-PARSER.add_argument("--iperf", help="iperf server `IP[:PORT]` for test. Requires iperf3 installed.", type=str)
-PARSER.add_argument("--iperf-proto", help="iperf test protocol.", type=str, choices=["tcp", "udp"])
-PARSER.add_argument("--iperf-dir", help="iperf test direction.", type=str, choices=["download", "upload"])
 PARSER.add_argument("-o", "--output", help="Output file. Filled with JSON encoded results.", type=str)
 PARSER.add_argument("--socks-ports-range",
                     help="""
@@ -78,62 +75,6 @@ class HttpMeasurements:
         Jobs number:       {self.jobs_num}
         Failed jobs:       {self.failed_num}
         Average speed:     {self.avg_speed_MBps:.2f}MB/s
-        """
-
-    def __repr__(self):
-        return str(self)
-
-
-class TcpIperfMeasurements:
-    jobs_num: int = 0
-    avg_sender_speed_MBps: float = 0.0
-    sender_total_retries: int = 0
-    avg_receiver_speed_MBps: float = 0.0
-
-    def __init__(self, jobs_num, sender_speed_MBps, sender_retries, receiver_speed_MBps):
-        self.jobs_num = jobs_num
-        self.avg_sender_speed_MBps = sender_speed_MBps / jobs_num
-        self.sender_total_retries = sender_retries
-        self.avg_receiver_speed_MBps = receiver_speed_MBps / jobs_num
-
-    def __str__(self):
-        return f"""
-        Jobs number:               {self.jobs_num}
-        Average sender speed:      {self.avg_sender_speed_MBps:.2f}MB/s
-        Sender total retries:      {self.sender_total_retries}
-        Average receiver speed:    {self.avg_receiver_speed_MBps:.2f}MB/s
-        """
-
-    def __repr__(self):
-        return str(self)
-
-
-class UdpIperfMeasurements:
-    jobs_num: int = 0
-    avg_sender_speed_MBps: float = 0.0
-    sender_total_sent_bytes: float = 0.0
-    avg_receiver_speed_MBps: float = 0.0
-    receiver_total_received_bytes: float = 0.0
-    total_lost_data_percent: float = 0.0
-
-    def __init__(self, jobs_num, sender_speed_MBps, sender_sent_bytes, receiver_speed_MBps, receiver_received_bytes):
-        self.jobs_num = jobs_num
-        self.avg_sender_speed_MBps = sender_speed_MBps / jobs_num
-        self.sender_total_sent_bytes = sender_sent_bytes
-        self.avg_receiver_speed_MBps = receiver_speed_MBps / jobs_num
-        self.receiver_total_received_bytes = receiver_received_bytes
-
-        assert sender_sent_bytes >= receiver_received_bytes
-        self.total_lost_data_percent = round(100 * (sender_sent_bytes - receiver_received_bytes) / sender_sent_bytes, 2)
-
-    def __str__(self):
-        return f"""
-        Jobs number:                   {self.jobs_num}
-        Average sender speed:          {self.avg_sender_speed_MBps:.2f}MB/s
-        Sender total sent bytes:       {self.sender_total_sent_bytes}
-        Average receiver speed:        {self.avg_receiver_speed_MBps:.2f}MB/s
-        Receiver total received bytes: {self.receiver_total_received_bytes}
-        Total lost data:               {self.total_lost_data_percent}%
         """
 
     def __repr__(self):
@@ -221,94 +162,6 @@ def run_file_upload_test(url, parallel_files, proxy_url):
         errors,
     )
 
-
-def run_iperf_test(server, proto, dir, parallel_threads):
-    args = ["iperf3", "--no-delay", "--zerocopy", "--client", server, "--parallel", str(parallel_threads),
-            "--format", "M"]
-
-    extra_args = {
-        ("tcp", "download"): ["--reverse"],
-        ("tcp", "upload"): [],
-        ("udp", "download"): ["--reverse", "--udp", "--bitrate", "0"],
-        ("udp", "upload"): ["--udp", "--bitrate", "0"],
-    }
-    args.extend(extra_args[(proto, dir)])
-
-    print(f"{datetime.now().time()} | Running iperf test '{args}'...")
-
-    with subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as proc:
-        if proc.wait() != 0:
-            message = f"iperf test failed:\n{proc.stdout.read().decode('utf-8')}"
-            print(f"{datetime.now().time()} | {message}")
-            return {"error": message}
-
-        results = proc.stdout.read().decode("utf-8")
-        print(f"{datetime.now().time()} | iperf output:\n{results}")
-
-    print(f"{datetime.now().time()} | iperf test is done")
-
-    result_lines = {
-        "sender": None,
-        "receiver": None,
-    }
-    for line in reversed(results.splitlines()):
-        if ((parallel_threads > 1 and line.startswith("[SUM]")) or (parallel_threads == 1 and line.startswith('['))) \
-                and (line.endswith("sender") or line.endswith("receiver")):
-            parts = line.split()
-            if parallel_threads == 1:
-                parts = [parts[0] + parts[1]] + parts[2:]
-            result_lines[parts[-1]] = parts
-            if result_lines["sender"] is not None and result_lines["receiver"] is not None:
-                break
-        elif "Interval" in line and "Transfer" in line and "Bitrate" in line:
-            print(f"{datetime.now().time()} | Not all results are found in iperf output:\n{results}")
-            sys.exit(1)
-
-    if proto == "tcp":
-        try:
-            ret = TcpIperfMeasurements(
-                parallel_threads,
-                sender_speed_MBps=float(result_lines["sender"][-4] if len(result_lines["sender"]) == 9
-                                        else result_lines["sender"][-3]),
-                sender_retries=int(result_lines["sender"][-2] if len(result_lines["sender"]) == 9 else 0),
-                receiver_speed_MBps=float(result_lines["receiver"][-3]),
-            )
-        except Exception as e:
-            print(f"{datetime.now().time()} | Failed to parse iperf output: {e}:\n{result_lines}")
-            sys.exit(1)
-    else:
-        def transfer_unit_to_multiplier(text: str):
-            text = text.lower()
-            x = 1.0 / 8 if text.endswith("bits") else 1
-
-            if text.startswith('k'):
-                return 1024 * x
-            if text.startswith('m'):
-                return 1024 * 1024 * x
-            if text.startswith('g'):
-                return 1024 * 1024 * 1024 * x
-            if text.startswith('t'):
-                return 1024 * 1024 * 1024 * 1024 * x
-
-            return x
-
-        try:
-            ret = UdpIperfMeasurements(
-                parallel_threads,
-                sender_speed_MBps=float(result_lines["sender"][5]),
-                sender_sent_bytes=float(
-                    result_lines["sender"][3]) * transfer_unit_to_multiplier(result_lines["sender"][4]),
-                receiver_speed_MBps=float(result_lines["receiver"][5]),
-                receiver_received_bytes=float(
-                    result_lines["receiver"][3]) * transfer_unit_to_multiplier(result_lines["receiver"][4]),
-            )
-        except Exception as e:
-            print(f"{datetime.now().time()} | Failed to parse iperf output: {e}:\n{result_lines}")
-            sys.exit(1)
-    print(f"{datetime.now().time()} | iperf test is done")
-    return ret
-
-
 RESULTS = {}
 
 socks5_proxies = []
@@ -376,11 +229,6 @@ if ARGS.upload:
         r = run_file_upload_test(ARGS.upload, ARGS.jobs, ARGS.proxy)
     print(f"{datetime.now().time()} | HTTP upload test results: {r}")
     RESULTS["http_upload"] = r
-
-if ARGS.iperf:
-    r = run_iperf_test(ARGS.iperf, ARGS.iperf_proto, ARGS.iperf_dir, ARGS.jobs)
-    print(f"{datetime.now().time()} | iperf ({ARGS.iperf_proto}, {ARGS.iperf_dir}) test results: {r}")
-    RESULTS[f"iperf_{ARGS.iperf_proto}_{ARGS.iperf_dir}"] = r
 
 if ARGS.output:
     Path(os.path.dirname(ARGS.output)).mkdir(parents=True, exist_ok=True)

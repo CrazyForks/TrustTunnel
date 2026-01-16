@@ -2,7 +2,7 @@
 
 The benchmark consists of 3 isolated parts:
 
-- `remote-side` - acts as HTTP and iperf servers for the benchmark
+- `remote-side` - acts as HTTP servers for the benchmark
 - `middle-box` - acts as a VPN endpoint host, either WireGuard or TrustTunnel
 - `local-side` - acts as a benchmark running host, can establish tunnels to the server
   residing on the remote side through the VPN endpoint

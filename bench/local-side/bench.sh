@@ -53,42 +53,6 @@ run_through_tun() {
       --jobs "$jobs_num" \
       --upload "http://$remote_ip:8080/upload"
     echo "...done"
-
-    echo "Running iperf download over TCP test with ${jobs_num} parallel jobs..."
-    run_test "$set_up_test_suite_cmd" "$tear_down_test_suite_cmd" "$results_host_dir_path" \
-      --output "$CONTAINER_RESULTS_DIR_PATH/iperf-tcp-dl-$jobs_num.json" \
-      --jobs "$jobs_num" \
-      --iperf "$remote_ip" \
-      --iperf-proto tcp \
-      --iperf-dir download
-    echo "...done"
-
-    echo "Running iperf upload over TCP test with ${jobs_num} parallel jobs..."
-    run_test "$set_up_test_suite_cmd" "$tear_down_test_suite_cmd" "$results_host_dir_path" \
-      --output "$CONTAINER_RESULTS_DIR_PATH/iperf-tcp-ul-$jobs_num.json" \
-      --jobs "$jobs_num" \
-      --iperf "$remote_ip" \
-      --iperf-proto tcp \
-      --iperf-dir upload
-    echo "...done"
-
-    echo "Running iperf download over UDP test with ${jobs_num} parallel jobs..."
-    run_test "$set_up_test_suite_cmd" "$tear_down_test_suite_cmd" "$results_host_dir_path" \
-      --output "$CONTAINER_RESULTS_DIR_PATH/iperf-udp-dl-$jobs_num.json" \
-      --jobs "$jobs_num" \
-      --iperf "$remote_ip" \
-      --iperf-proto udp \
-      --iperf-dir download
-    echo "...done"
-
-    echo "Running iperf upload over UDP test with ${jobs_num} parallel jobs..."
-    run_test "$set_up_test_suite_cmd" "$tear_down_test_suite_cmd" "$results_host_dir_path" \
-      --output "$CONTAINER_RESULTS_DIR_PATH/iperf-udp-ul-$jobs_num.json" \
-      --jobs "$jobs_num" \
-      --iperf "$remote_ip" \
-      --iperf-proto udp \
-      --iperf-dir upload
-    echo "...done"
   done
 }
 

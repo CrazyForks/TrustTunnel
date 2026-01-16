@@ -6,7 +6,7 @@ ARG LLVM_MAJOR_VER=17
 
 # Install the required utilities
 RUN apt update && \
-    apt install -y build-essential curl git gnupg lsb-release iperf3 iproute2 \
+    apt install -y build-essential curl git gnupg lsb-release iproute2 \
     net-tools software-properties-common wget tar libssl-dev
 
 RUN curl -OL https://github.com/Kitware/CMake/releases/download/v3.31.10/cmake-3.31.10.tar.gz && \
