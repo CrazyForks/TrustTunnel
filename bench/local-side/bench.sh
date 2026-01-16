@@ -40,10 +40,19 @@ run_through_tun() {
   local remote_ip="$4"
 
   for jobs_num in "${JOB_NUMS[@]}"; do
-    echo "Running download test with ${jobs_num} parallel jobs..."
+    echo "Running HTTP2 download test with ${jobs_num} parallel jobs..."
     run_test "$set_up_test_suite_cmd" "$tear_down_test_suite_cmd" "$results_host_dir_path" \
       --output "$CONTAINER_RESULTS_DIR_PATH/lf-dl-$jobs_num.json" \
       --jobs "$jobs_num" \
+      --proto "http2" \
+      --download "http://$remote_ip:8080/download/1GiB.dat"
+    echo "...done"
+
+    echo "Running HTTP3 download test with ${jobs_num} parallel jobs..."
+    run_test "$set_up_test_suite_cmd" "$tear_down_test_suite_cmd" "$results_host_dir_path" \
+      --output "$CONTAINER_RESULTS_DIR_PATH/lf-dl-$jobs_num.json" \
+      --jobs "$jobs_num" \
+      --proto "http3" \
       --download "http://$remote_ip:8080/download/1GiB.dat"
     echo "...done"
 

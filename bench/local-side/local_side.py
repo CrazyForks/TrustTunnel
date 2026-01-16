@@ -36,6 +36,7 @@ PARSER.add_argument("-u", "--upload",
                     """,
                     type=str)
 PARSER.add_argument("-o", "--output", help="Output file. Filled with JSON encoded results.", type=str)
+PARSER.add_argument("--proto", help="HTTP version to use", type=str, choices=["http2", "http3"])
 PARSER.add_argument("--socks-ports-range",
                     help="""
                     Syntax: (int,int) (e.g., `--socks-ports-range (1,42)`)
@@ -81,12 +82,16 @@ class HttpMeasurements:
         return str(self)
 
 
-def run_file_download_test(url, parallel_files, proxy_url):
+def run_file_download_test(url, parallel_files, proto, proxy_url):
     print(f"{datetime.now().time()} | Running file download test...")
 
     args = ["curl", "--output", "/dev/null", "--fail", "--insecure", url]
     if proxy_url is not None:
         args.extend(["--proxy-insecure", "--proxy", proxy_url])
+    if proto == "http2":
+        args.append("--http2-prior-knowledge")
+    elif proto == "http3":
+        args.append("--http3-only")
     processes = []
     print(f"{datetime.now().time()} | Running command '{args}' in parallel {parallel_files}...")
     for _ in range(0, parallel_files):
@@ -195,7 +200,7 @@ class ThreadReturningValue(threading.Thread):
 if ARGS.download:
     if len(socks5_proxies) > 0:
         threads = list(map(
-            lambda proxy: ThreadReturningValue(target=run_file_download_test, args=(ARGS.download, ARGS.jobs, proxy)),
+            lambda proxy: ThreadReturningValue(target=run_file_download_test, args=(ARGS.download, ARGS.jobs, ARGS.proto, proxy)),
             socks5_proxies))
         for t in threads:
             t.start()
@@ -207,7 +212,7 @@ if ARGS.download:
             errors.extend(x.errors)
         r = HttpMeasurements(jobs_num=len(socks5_proxies) * ARGS.jobs, speed_samples=speed_samples, errors=errors)
     else:
-        r = run_file_download_test(ARGS.download, ARGS.jobs, ARGS.proxy)
+        r = run_file_download_test(ARGS.download, ARGS.jobs, ARGS.proto, ARGS.proxy)
     print(f"{datetime.now().time()} | HTTP download test results: {r}")
     RESULTS["http_download"] = r
 
