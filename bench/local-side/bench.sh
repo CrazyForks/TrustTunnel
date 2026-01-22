@@ -42,7 +42,7 @@ run_through_tun() {
   for jobs_num in "${JOB_NUMS[@]}"; do
     echo "Running HTTP2 download test with ${jobs_num} parallel jobs..."
     run_test "$set_up_test_suite_cmd" "$tear_down_test_suite_cmd" "$results_host_dir_path" \
-      --output "$CONTAINER_RESULTS_DIR_PATH/lf-dl-$jobs_num.json" \
+      --output "$CONTAINER_RESULTS_DIR_PATH/lf-dl-h2-$jobs_num.json" \
       --jobs "$jobs_num" \
       --proto "http2" \
       --download "https://$remote_ip:8080/download/1GiB.dat"
@@ -50,7 +50,7 @@ run_through_tun() {
 
     echo "Running HTTP3 download test with ${jobs_num} parallel jobs..."
     run_test "$set_up_test_suite_cmd" "$tear_down_test_suite_cmd" "$results_host_dir_path" \
-      --output "$CONTAINER_RESULTS_DIR_PATH/lf-dl-$jobs_num.json" \
+      --output "$CONTAINER_RESULTS_DIR_PATH/lf-dl-h3-$jobs_num.json" \
       --jobs "$jobs_num" \
       --proto "http3" \
       --download "https://$remote_ip:8080/download/1GiB.dat"
