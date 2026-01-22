@@ -72,6 +72,20 @@ run_through_tun() {
       --upload "https://$remote_ip:8080/upload"
     echo "...done"
   done
+
+  echo "Running HTTP2 small file download test"
+    run_test "$set_up_test_suite_cmd" "$tear_down_test_suite_cmd" "$results_host_dir_path" \
+    --output "$CONTAINER_RESULTS_DIR_PATH/sf-dl-h2.json" \
+    --jobs 1000 \
+    --proto "http2" \
+    --download "https://$remote_ip:8080/download/100KiB.dat"
+
+  echo "Running HTTP3 small file download test"
+  run_test "$set_up_test_suite_cmd" "$tear_down_test_suite_cmd" "$results_host_dir_path" \
+    --output "$CONTAINER_RESULTS_DIR_PATH/sf-dl-h3.json" \
+    --jobs 1000 \
+    --proto "http3" \
+    --download "https://$remote_ip:8080/download/100KiB.dat"
 }
 
 run_through_proxy() {
@@ -119,12 +133,12 @@ run_no_vpn() {
   local tear_down_test_suite_cmd=""
   run_through_tun "$set_up_test_suite_cmd" "$tear_down_test_suite_cmd" "$output_dir_path" "$remote_ip" ""
 
-  echo "Running small files download test..."
-  run_test "$set_up_test_suite_cmd" "$tear_down_test_suite_cmd" "$output_dir_path" \
-    --output "$CONTAINER_RESULTS_DIR_PATH/sf-dl.json" \
-    --jobs 1000 \
-    --download "https://$remote_ip:8080/download/100KiB.dat"
-  echo "...done"
+  # echo "Running small files download test..."
+  # run_test "$set_up_test_suite_cmd" "$tear_down_test_suite_cmd" "$output_dir_path" \
+  #   --output "$CONTAINER_RESULTS_DIR_PATH/sf-dl.json" \
+  #   --jobs 1000 \
+  #   --download "https://$remote_ip:8080/download/100KiB.dat"
+  # echo "...done"
 
   echo "Bench without any VPN is done"
 }
@@ -146,12 +160,12 @@ run_through_wg() {
   run_through_tun "$set_up_test_suite_cmd" "$tear_down_test_suite_cmd" "$output_dir" \
     "$remote_ip"
 
-  echo "Running small files download test..."
-  run_test "$set_up_test_suite_cmd" "$tear_down_test_suite_cmd" "$output_dir" \
-    --output "$CONTAINER_RESULTS_DIR_PATH/sf-dl.json" \
-    --jobs 1000 \
-    --download "https://$remote_ip:8080/download/100KiB.dat"
-  echo "...done"
+  # echo "Running small files download test..."
+  # run_test "$set_up_test_suite_cmd" "$tear_down_test_suite_cmd" "$output_dir" \
+  #   --output "$CONTAINER_RESULTS_DIR_PATH/sf-dl.json" \
+  #   --jobs 1000 \
+  #   --download "https://$remote_ip:8080/download/100KiB.dat"
+  # echo "...done"
 
   echo "...done"
 }
@@ -182,24 +196,24 @@ run_through_ag() {
     run_through_tun "$set_up_test_suite_cmd" "$tear_down_test_suite_cmd" "$output_dir/${protocol}/" \
       "$remote_ip"
 
-    set_up_test_suite_cmd="{
-      container=\$(docker run -d \
-        --cap-add=NET_ADMIN --cap-add=SYS_MODULE --device=/dev/net/tun \
-        --add-host=$endpoint_hostname:$endpoint_ip \
-        --network=$network \
-        $LOCAL_AG_IMAGE \
-        $endpoint_hostname $endpoint_ip $protocol socks 1080 1179)
-      sleep 10
-      echo \$container
-    }"
-    echo "Running small files download test..."
-    run_test "$set_up_test_suite_cmd" "$tear_down_test_suite_cmd" "$output_dir/${protocol}/" \
-      --output "$CONTAINER_RESULTS_DIR_PATH/sf-dl.json" \
-      --jobs 10 \
-      --download "https://$remote_ip:8080/download/100KiB.dat" \
-      --proxy "socks5://127.0.0.1" \
-      --socks-ports-range "(1080,1179)"
-    echo "...done"
+    # set_up_test_suite_cmd="{
+    #   container=\$(docker run -d \
+    #     --cap-add=NET_ADMIN --cap-add=SYS_MODULE --device=/dev/net/tun \
+    #     --add-host=$endpoint_hostname:$endpoint_ip \
+    #     --network=$network \
+    #     $LOCAL_AG_IMAGE \
+    #     $endpoint_hostname $endpoint_ip $protocol socks 1080 1179)
+    #   sleep 10
+    #   echo \$container
+    # }"
+    # echo "Running small files download test..."
+    # run_test "$set_up_test_suite_cmd" "$tear_down_test_suite_cmd" "$output_dir/${protocol}/" \
+    #   --output "$CONTAINER_RESULTS_DIR_PATH/sf-dl.json" \
+    #   --jobs 10 \
+    #   --download "https://$remote_ip:8080/download/100KiB.dat" \
+    #   --proxy "socks5://127.0.0.1" \
+    #   --socks-ports-range "(1080,1179)"
+    # echo "...done"
 
     echo "...done"
   done
