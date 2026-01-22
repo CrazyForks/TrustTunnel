@@ -105,7 +105,7 @@ run_through_proxy() {
     "${common_script_args[@]}" \
     --output "$CONTAINER_RESULTS_DIR_PATH/sf-dl.json" \
     --jobs 1000 \
-    --download "http://$remote_ip:8080/download/100KiB.dat"
+    --download "https://$remote_ip:8080/download/100KiB.dat"
   echo "...done"
 }
 
