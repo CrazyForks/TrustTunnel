@@ -3,8 +3,8 @@ version: 2
 
 plan:
   project-key: CL
-  key: VLERT
-  name: VpnLibsEndpoint - Run Tests
+  key: VLERTAL
+  name: VpnLibsEndpoint - Run Tests and Lint
 
 stages:
   - Run tests:
@@ -36,6 +36,14 @@ Test on Linux:
             cargo test --workspace
     - script:
         interpreter: SHELL
+        description: Lint Rust
+        scripts:
+          - |-
+            set -x -e
+            rustup component add rustfmt clippy
+            make lint-rust
+    - script:
+        interpreter: SHELL
         description: Build binaries
         scripts:
           - |-
@@ -58,6 +66,14 @@ Test on macOS:
           - |-
             set -x -e
             cargo test --workspace --target aarch64-apple-darwin
+    - script:
+        interpreter: SHELL
+        description: Lint Rust
+        scripts:
+          - |-
+            set -x -e
+            rustup component add rustfmt clippy
+            make lint-rust
     - script:
         interpreter: SHELL
         description: Build binaries

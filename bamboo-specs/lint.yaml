@@ -33,7 +33,8 @@ Lint Markdown:
           - |-
             set -x -e
             
-            echo "Lint Markdown skipped"
+            npm install -g markdownlint-cli
+            make lint-md
   requirements:
     - adg-privileged-docker
   artifact-subscriptions: [ ]
