@@ -126,10 +126,14 @@ def run_file_download_test(url, parallel_files, proto, proxy_url):
     )
 
 
-def run_file_upload_test(url, parallel_files, proxy_url):
+def run_file_upload_test(url, parallel_files, proto, proxy_url):
     print(f"{datetime.now().time()} | Running file upload test...")
 
     args = ["curl", "-X", "PUT", "-T", os.environ['UPLOAD_FILENAME'], "--fail", "--insecure"]
+    if proto == "http2":
+        args.append("--http2-prior-knowledge")
+    elif proto == "http3":
+        args.append("--http3-only")
     if proxy_url is not None:
         args.extend(["--proxy-insecure", "--proxy", proxy_url])
     processes = []
@@ -219,7 +223,7 @@ if ARGS.download:
 if ARGS.upload:
     if len(socks5_proxies) > 0:
         threads = list(map(
-            lambda proxy: ThreadReturningValue(target=run_file_upload_test, args=(ARGS.upload, ARGS.jobs, proxy)),
+            lambda proxy: ThreadReturningValue(target=run_file_upload_test, args=(ARGS.upload, ARGS.jobs, ARGS.proto, proxy)),
             socks5_proxies))
         for t in threads:
             t.start()
@@ -231,7 +235,7 @@ if ARGS.upload:
             errors.extend(x.errors)
         r = HttpMeasurements(jobs_num=len(socks5_proxies) * ARGS.jobs, speed_samples=speed_samples, errors=errors)
     else:
-        r = run_file_upload_test(ARGS.upload, ARGS.jobs, ARGS.proxy)
+        r = run_file_upload_test(ARGS.upload, ARGS.jobs, ARGS.proto, ARGS.proxy)
     print(f"{datetime.now().time()} | HTTP upload test results: {r}")
     RESULTS["http_upload"] = r
 

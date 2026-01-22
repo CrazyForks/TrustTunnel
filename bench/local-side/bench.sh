@@ -56,10 +56,19 @@ run_through_tun() {
       --download "https://$remote_ip:8080/download/1GiB.dat"
     echo "...done"
 
-    echo "Running upload test with ${jobs_num} parallel jobs..."
+    echo "Running HTTP2 upload test with ${jobs_num} parallel jobs..."
     run_test "$set_up_test_suite_cmd" "$tear_down_test_suite_cmd" "$results_host_dir_path" \
-      --output "$CONTAINER_RESULTS_DIR_PATH/lf-ul-$jobs_num.json" \
+      --output "$CONTAINER_RESULTS_DIR_PATH/lf-ul-h2-$jobs_num.json" \
       --jobs "$jobs_num" \
+      --proto "http2" \
+      --upload "https://$remote_ip:8080/upload"
+    echo "...done"
+
+    echo "Running HTTP3 upload test with ${jobs_num} parallel jobs..."
+    run_test "$set_up_test_suite_cmd" "$tear_down_test_suite_cmd" "$results_host_dir_path" \
+      --output "$CONTAINER_RESULTS_DIR_PATH/lf-ul-h3-$jobs_num.json" \
+      --jobs "$jobs_num" \
+      --proto "http3" \
       --upload "https://$remote_ip:8080/upload"
     echo "...done"
   done
