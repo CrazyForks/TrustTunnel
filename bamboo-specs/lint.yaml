@@ -1,0 +1,60 @@
+---
+version: 2
+
+plan:
+  project-key: CL
+  key: VLEL
+  name: VpnLibsEndpoint - Lint
+
+stages:
+  - Default Stage:
+      manual: false
+      final: false
+      jobs:
+        - Lint Markdown
+
+Lint Markdown:
+  key: LMD
+  docker:
+    image: adguard/core-libs:2.6
+    volumes:
+      ${bamboo.working.directory}: ${bamboo.working.directory}
+      ${bamboo.tmp.directory}: ${bamboo.tmp.directory}
+    docker-run-arguments: [ ]
+  tasks:
+    - !include docker-clean.yaml
+    - checkout:
+        force-clean-build: 'true'
+        description: Checkout Default Repository
+    - script:
+        interpreter: SHELL
+        description: Lint Markdown files
+        scripts:
+          - |-
+            set -x -e
+            
+            echo "Lint Markdown skipped"
+  requirements:
+    - adg-privileged-docker
+  artifact-subscriptions: [ ]
+
+repositories:
+  - core-libs/vpn-libs-endpoint:
+      scope: global
+
+branches:
+  create: for-pull-request
+  delete:
+    after-deleted-days: 4
+    after-inactive-days: 30
+  integration:
+    push-on-success: false
+    merge-from: master
+  link-to-jira: true
+
+notifications: [ ]
+
+labels: [ ]
+
+other:
+  concurrent-build-plugin: system-default
