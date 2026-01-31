@@ -113,13 +113,14 @@ fn compose_quic_listener_table(settings: Option<&QuicSettings>) -> String {
             table["recv_udp_payload_size"] = value(*x.get_recv_udp_payload_size() as i64);
             table["send_udp_payload_size"] = value(*x.get_send_udp_payload_size() as i64);
             table["initial_max_data"] = value(*x.get_initial_max_data() as i64);
-            table["max_stream_data_bidi_local"] =
+            table["initial_max_stream_data_bidi_local"] =
                 value(*x.get_initial_max_stream_data_bidi_local() as i64);
-            table["max_stream_data_bidi_remote"] =
+            table["initial_max_stream_data_bidi_remote"] =
                 value(*x.get_initial_max_stream_data_bidi_remote() as i64);
-            table["max_stream_data_uni"] = value(*x.get_initial_max_stream_data_uni() as i64);
-            table["max_streams_bidi"] = value(*x.get_initial_max_streams_bidi() as i64);
-            table["max_streams_uni"] = value(*x.get_initial_max_streams_uni() as i64);
+            table["initial_max_stream_data_uni"] =
+                value(*x.get_initial_max_stream_data_uni() as i64);
+            table["initial_max_streams_bidi"] = value(*x.get_initial_max_streams_bidi() as i64);
+            table["initial_max_streams_uni"] = value(*x.get_initial_max_streams_uni() as i64);
             table["max_connection_window"] = value(*x.get_max_connection_window() as i64);
             table["max_stream_window"] = value(*x.get_max_stream_window() as i64);
             table["disable_active_migration"] = value(*x.get_disable_active_migration());
