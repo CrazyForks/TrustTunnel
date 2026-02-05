@@ -172,12 +172,10 @@ Deploy artifacts:
             git push origin ${TAG}
             git push origin HEAD
 
-            # TODO: change to bamboo_githubPublicRepoPassword when repo become public
-            git clone https://${bamboo_githubPrivateRepoPassword}:@github.com/TrustTunnel/TrustTunnel/
+            git clone https://${bamboo_githubPublicRepoPassword}:@github.com/TrustTunnel/TrustTunnel/
             cd TrustTunnel
             CHANGELOG_URL="https://github.com/TrustTunnel/TrustTunnel/blob/${TAG}/CHANGELOG.md"
-            # TODO: change to bamboo_githubPublicRepoPassword when repo become public
-            gh config set -h github.com oauth_token "${bamboo_githubPrivateRepoPassword}" || exit 1
+            gh config set -h github.com oauth_token "${bamboo_githubPublicRepoPassword}" || exit 1
             gh release delete -y ${TAG} || true
             gh release create ${TAG} -t "${TAG}" -n "See [CHANGELOG.md](${CHANGELOG_URL}) for the list of changes."
             gh release upload ${TAG} ../build_linux/trusttunnel-v${VERSION}-linux-x86_64.tar.gz
