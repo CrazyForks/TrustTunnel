@@ -28,7 +28,6 @@ username = "premium"
 password = "premium"
 skip_verification = true
 upstream_protocol = "$PROTOCOL"
-upstream_fallback_protocol = "$PROTOCOL"
 END
 )
 

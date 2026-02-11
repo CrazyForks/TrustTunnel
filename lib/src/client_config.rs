@@ -31,7 +31,6 @@ pub fn build(
         certificate: std::fs::read_to_string(&host.cert_chain_path)
             .expect("Failed to load certificate"),
         upstream_protocol: "http2".into(),
-        upstream_fallback_protocol: "".into(),
         anti_dpi: false,
     }
 }
@@ -56,8 +55,6 @@ pub struct ClientConfig {
     certificate: String,
     /// Protocol to be used to communicate with the endpoint [http2, http3]
     upstream_protocol: String,
-    /// Fallback protocol to be used in case the main one fails [<none>, http2, http3]
-    upstream_fallback_protocol: String,
     /// Is anti-DPI measures should be enabled
     anti_dpi: bool,
 }
@@ -74,7 +71,6 @@ impl ClientConfig {
         doc["skip_verification"] = value(self.skip_verification);
         doc["certificate"] = value(&self.certificate);
         doc["upstream_protocol"] = value(&self.upstream_protocol);
-        doc["upstream_fallback_protocol"] = value(&self.upstream_fallback_protocol);
         doc["anti_dpi"] = value(self.anti_dpi);
         doc.to_string()
     }
@@ -110,9 +106,6 @@ certificate = ""
 upstream_protocol = ""
 
 {}
-upstream_fallback_protocol = ""
-
-{}
 anti_dpi = false
 "#,
         ClientConfig::doc_hostname().to_toml_comment(),
@@ -123,7 +116,6 @@ anti_dpi = false
         ClientConfig::doc_skip_verification().to_toml_comment(),
         ClientConfig::doc_certificate().to_toml_comment(),
         ClientConfig::doc_upstream_protocol().to_toml_comment(),
-        ClientConfig::doc_upstream_fallback_protocol().to_toml_comment(),
         ClientConfig::doc_anti_dpi().to_toml_comment(),
     )
 });
