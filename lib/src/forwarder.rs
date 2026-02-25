@@ -44,6 +44,7 @@ pub(crate) struct TcpConnectionMeta {
     pub user_agent: Option<String>,
 }
 
+#[derive(Debug, Clone)]
 pub(crate) struct UdpMultiplexerMeta {
     /// An address of the VPN client establishing the UDP tunnel
     pub client_address: IpAddr,

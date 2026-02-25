@@ -37,7 +37,7 @@ pub(crate) const HTTP3_DATA_FRAME_TYPE_WIRE_LENGTH: usize = varint_len(0);
 /// 1 byte for the chunk itself.
 pub(crate) const MIN_USABLE_QUIC_STREAM_CAPACITY: usize = http3_data_frame_overhead(1) + 1;
 
-const SCRUBBED_PLACEHOLDER: &str = "scrubbed";
+const SCRUBBED_PLACEHOLDER: &str = "__stripped__";
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub(crate) enum Channel {

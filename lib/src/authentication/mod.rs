@@ -4,13 +4,22 @@ use crate::log_utils;
 use std::borrow::Cow;
 
 /// Authentication request source
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum Source<'this> {
     /// A client tries to authenticate using SNI
     Sni(Cow<'this, str>),
     /// A client tries to authenticate using
     /// [the basic authentication scheme](https://datatracker.ietf.org/doc/html/rfc7617)
     ProxyBasic(Cow<'this, str>),
+}
+
+impl std::fmt::Debug for Source<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Source::Sni(_) => write!(f, "Sni(__stripped__)"),
+            Source::ProxyBasic(_) => write!(f, "ProxyBasic(__stripped__)"),
+        }
+    }
 }
 
 /// Authentication procedure status
@@ -34,5 +43,26 @@ impl Source<'_> {
             Source::Sni(x) => Source::Sni(Cow::Owned(x.into_owned())),
             Source::ProxyBasic(x) => Source::ProxyBasic(Cow::Owned(x.into_owned())),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn source_debug_scrubs_sni() {
+        let source = Source::Sni("secret_credentials".into());
+        let debug_output = format!("{:?}", source);
+        assert!(!debug_output.contains("secret_credentials"));
+        assert!(debug_output.contains("__stripped__"));
+    }
+
+    #[test]
+    fn source_debug_scrubs_proxy_basic() {
+        let source = Source::ProxyBasic("dXNlcjpwYXNzd29yZA==".into());
+        let debug_output = format!("{:?}", source);
+        assert!(!debug_output.contains("dXNlcjpwYXNzd29yZA=="));
+        assert!(debug_output.contains("__stripped__"));
     }
 }

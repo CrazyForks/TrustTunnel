@@ -221,7 +221,10 @@ impl downstream::PendingTcpConnectRequest for TcpConnection {
                     authority.port_u16().ok_or_else(|| {
                         io::Error::new(
                             ErrorKind::Other,
-                            format!("Unexpected authority port: request={:?}", request.request()),
+                            format!(
+                                "Unexpected authority port: request={:?}",
+                                net_utils::scrub_request(request.request())
+                            ),
                         )
                     })?
                 } else {

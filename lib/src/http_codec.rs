@@ -1,5 +1,5 @@
 use crate::tls_demultiplexer::Protocol;
-use crate::{authentication, datagram_pipe, log_utils, pipe};
+use crate::{authentication, datagram_pipe, log_utils, net_utils, pipe};
 use async_trait::async_trait;
 use bytes::Bytes;
 use http::uri::Authority;
@@ -67,7 +67,10 @@ pub(crate) trait PendingRequest: Send {
             .ok_or_else(|| {
                 io::Error::new(
                     ErrorKind::Other,
-                    format!("Unexpected authorization header: {:?}", self.request()),
+                    format!(
+                        "Unexpected authorization header: {:?}",
+                        net_utils::scrub_request(self.request())
+                    ),
                 )
             })
     }
