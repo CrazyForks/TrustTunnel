@@ -13,14 +13,11 @@ fn workspace_root() -> std::path::PathBuf {
 
 /// Run the Python config_to_deeplink.py script
 fn python_encode(toml_config: &str) -> String {
-    use std::time::SystemTime;
+    use rand::RngExt;
 
+    let mut rng = rand::rng();
     let workspace = workspace_root();
-    let timestamp = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let temp_file = workspace.join(format!("test_config_{}.toml", timestamp));
+    let temp_file = workspace.join(format!("test_config_{}.toml", rng.random::<u32>()));
 
     std::fs::write(&temp_file, toml_config).expect("Failed to write temp TOML file");
 
