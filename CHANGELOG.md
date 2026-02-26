@@ -1,5 +1,7 @@
 # CHANGELOG
 
+## 1.0.7
+
 - [Feature] Added per-client connection limits
     - Optional limits for simultaneous HTTP/2 and HTTP/3 connections per client credentials
     - Global default limits via `default_max_http2_conns_per_client` and `default_max_http3_conns_per_client` in main config
