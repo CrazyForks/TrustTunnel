@@ -70,9 +70,9 @@ pub(crate) trait Sink: Send {
     async fn wait_writable(&mut self) -> io::Result<()>;
 
     /// Flush all intermediately buffered contents.
-    /// By default, just waits for the writable state.
+    /// By default, does nothing.
     async fn flush(&mut self) -> io::Result<()> {
-        self.wait_writable().await
+        Ok(())
     }
 }
 
@@ -149,6 +149,7 @@ impl<F: Fn(SimplexDirection, usize) + Send> SimplexPipe<F> {
             self.last_activity = Instant::now();
 
             let future = async {
+                self.sink.flush().await?;
                 if self.pending_chunk.is_none() {
                     let x = self.source.read().await?;
                     log_dir!(trace, self.source.id(), self.direction, "TCP data: {}", x);

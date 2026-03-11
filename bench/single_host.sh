@@ -188,6 +188,7 @@ run() {
     remote_container=$(docker run -d \
       --hostname="$ENDPOINT_HOSTNAME" \
       --network="$NETWORK_NAME" \
+      --ulimit nofile=65536:65536 \
       "$REMOTE_IMAGE")
     remote_ip=$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$remote_container")
   fi
