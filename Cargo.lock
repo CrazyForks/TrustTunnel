@@ -3549,6 +3549,7 @@ dependencies = [
  "once_cell",
  "prometheus",
  "quiche",
+ "rand 0.8.5",
  "ring",
  "rustls",
  "rustls-native-certs 0.7.3",
@@ -3590,6 +3591,7 @@ dependencies = [
  "sentry",
  "tokio",
  "toml",
+ "toml_edit 0.19.15",
  "trusttunnel",
 ]
 

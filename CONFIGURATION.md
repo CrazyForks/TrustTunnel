@@ -53,6 +53,11 @@ The endpoint binary accepts the following command line arguments:
 | `<tls_hosts_settings>` | - | **Required.** Path to TLS hosts settings file | - |
 | `--client_config` | `-c` | Print endpoint config for specified client and exit | - |
 | `--address` | `-a` | Endpoint address to add to client config (requires `-c`). Accepts `ip`, `ip:port`, `domain`, or `domain:port`. | - |
+| `--client-random-prefix` | `-r` | Use an explicit `client_random_prefix` in the exported client config (requires `-c`). | - |
+| `--generate-client-random-prefix` | - | Generate a new `client_random_prefix`, append a matching allow rule to `rules.toml`, and use it in the exported client config (requires `-c`). | - |
+| `--prefix-length` | - | Length in bytes for generated `client_random_prefix` values (requires `--generate-client-random-prefix`). | `4` |
+| `--prefix-percent` | - | Percentage of one bits in the generated mask (requires `--generate-client-random-prefix`). | `70` |
+| `--prefix-mask` | - | Explicit hex mask for generated `client_random_prefix` values (requires `--generate-client-random-prefix`). Conflicts with `--prefix-length` and `--prefix-percent`. | - |
 
 ### Examples
 
@@ -77,6 +82,18 @@ The endpoint binary accepts the following command line arguments:
 
 # Export client configuration with domain name and explicit port
 ./trusttunnel_endpoint vpn.toml hosts.toml -c username -a vpn.example.com:443
+
+# Export client configuration with an explicit client_random_prefix
+./trusttunnel_endpoint vpn.toml hosts.toml -c username -a vpn.example.com \
+    --client-random-prefix a0b0/f0f0
+
+# Generate a new client_random_prefix, append an allow rule to rules.toml, and export it
+./trusttunnel_endpoint vpn.toml hosts.toml -c username -a vpn.example.com \
+    --generate-client-random-prefix
+
+# Generate a new client_random_prefix with a custom mask
+./trusttunnel_endpoint vpn.toml hosts.toml -c username -a vpn.example.com \
+    --generate-client-random-prefix --prefix-mask ffff0000
 ```
 
 ---

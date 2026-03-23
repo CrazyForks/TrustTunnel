@@ -1,5 +1,7 @@
 # CHANGELOG
 
+- [Feature] `trusttunnel_endpoint -c` can now generate `client_random_prefix` values automatically, append matching allow rules to `rules.toml`, and embed the generated value into exported client configs.
+
 ## 1.0.17
 
 - [Fix]     Reverse proxy routing for H2/H3.

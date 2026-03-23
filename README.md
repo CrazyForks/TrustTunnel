@@ -261,12 +261,21 @@ cd /opt/trusttunnel/
 
 # Or explicitly specify the format:
 ./trusttunnel_endpoint vpn.toml hosts.toml -c <client_name> -a <address> --format deeplink
+
+# Generate a new client_random_prefix, append a matching allow rule to rules.toml,
+# and include it in the exported client config:
+./trusttunnel_endpoint vpn.toml hosts.toml -c <client_name> -a <address> \
+    --generate-client-random-prefix
 ```
 
 This outputs a `tt://?` deep-link URI that can be:
 
 - Shared directly with mobile clients
 - Used with the [CLI client][trusttunnel-client] or [TrustTunnel Flutter Client][trusttunnel-flutter-client]
+
+When `--generate-client-random-prefix` is used, the endpoint also appends an
+allow rule for the generated value to the `rules.toml` file referenced from
+`vpn.toml`.
 
 **Note**: If your certificate is signed by a trusted CA (e.g., Let's Encrypt), it will be
 automatically omitted from the deep-link to keep it compact. Self-signed
