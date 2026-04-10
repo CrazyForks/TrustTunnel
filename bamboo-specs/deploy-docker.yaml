@@ -46,7 +46,8 @@ Build and Push Docker Image:
                 -t "${DOCKER_IMAGE_LATEST_TAG}" \
                 --push .
   requirements:
-    - adg-privileged-docker
+    - ephemeral-linux
+    - image: registry.int.agrd.dev/linux/debian13-bamboo:latest
   artifact-subscriptions: [ ]
   artifacts: [ ]
 
